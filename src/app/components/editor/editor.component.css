@@ -1,0 +1,78 @@
+:host {
+    display: block;
+    height: 100%;
+    width: 100%;
+}
+
+/* 
+ * Crepe Dark Mode Overrides (Matching Zinc Palette)
+ * Derived from Tailwind config and Spartan tokens
+ */
+.crepe-host {
+    --crepe-color-background: hsl(var(--background));
+    --crepe-color-on-background: hsl(var(--foreground));
+    --crepe-color-surface: hsl(var(--card));
+    --crepe-color-on-surface: hsl(var(--card-foreground));
+    --crepe-color-outline: hsl(var(--border));
+    --crepe-color-primary: hsl(var(--primary));
+    /* --crepe-color-on-primary: hsl(var(--primary-foreground)); */
+
+    /* Text styling */
+    --crepe-font-body: theme('fontFamily.sans');
+    --crepe-font-code: theme('fontFamily.mono');
+
+    /* Adjust Crepe internal CSS vars if necessary to force dark theme look */
+    color: hsl(var(--foreground));
+}
+
+/* Ensure the internal milkdown editor takes full height */
+:deep(.milkdown) {
+    height: 100%;
+    overflow-y: auto;
+    /* Internal scroll */
+}
+
+/* ProseMirror editor content area */
+/* ProseMirror editor content area */
+:deep(.ProseMirror) {
+    min-height: 100%;
+    height: 100%;
+    padding: 2rem 3rem;
+    outline: none;
+    max-width: none !important;
+    /* Force full width */
+    margin: 0 !important;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    box-sizing: border-box;
+}
+
+:deep(.milkdown) {
+    height: 100%;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+}
+
+.crepe-host {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+}
+
+/* --- TOOLBAR VISIBILITY LOGIC (Default Hidden) --- */
+
+/* 1. Base state: Hidden */
+:deep(.angular-toolbar-wrapper) {
+    display: none;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-in-out;
+}
+
+/* 2. Active state: Show ONLY when explicit true */
+:deep(.angular-toolbar-wrapper[data-show="true"]) {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}

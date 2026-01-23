@@ -1,0 +1,35 @@
+<div
+    class="h-8 border-t border-border bg-card flex items-center justify-between px-3 text-[11px] text-muted-foreground select-none">
+    <!-- Left Status -->
+    <div class="flex items-center gap-4">
+        <div class="flex items-center gap-1.5 hover:text-foreground cursor-pointer">
+            <lucide-icon [img]="ChevronRight" size="14"></lucide-icon>
+        </div>
+        <div class="flex items-center gap-1.5 hover:text-foreground cursor-pointer">
+            <lucide-icon [img]="GitGraph" size="14"></lucide-icon>
+            <span class="font-medium">Hub</span>
+            <span>28 entities</span>
+        </div>
+        <div
+            class="flex items-center gap-1.5 px-2 py-0.5 rounded-full hover:bg-accent hover:text-foreground cursor-pointer transition-colors border border-transparent hover:border-border">
+            <lucide-icon [img]="Globe" size="14"></lucide-icon>
+            <span>Global</span>
+            <lucide-icon [img]="ChevronRight" size="12" class="rotate-90"></lucide-icon>
+        </div>
+        <div class="flex items-center gap-1.5 hover:text-foreground cursor-pointer">
+            <lucide-icon [img]="Volume2" size="14"></lucide-icon>
+        </div>
+    </div>
+
+    <!-- Right Status -->
+    <div class="flex items-center gap-4">
+        <span class="hover:text-foreground cursor-pointer">0 backlinks</span>
+        <span class="hover:text-foreground cursor-pointer">3 words</span>
+        <span class="hover:text-foreground cursor-pointer">17 chars</span>
+        <span class="hover:text-foreground cursor-pointer">2 notes</span>
+        <div class="flex items-center gap-1 text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+            <lucide-icon [img]="Check" size="12"></lucide-icon>
+            <span class="font-medium">Saved</span>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,98 @@
+<div class="flex h-full w-[300px] border-r border-border bg-background">
+    <!-- Rail -->
+    <div class="flex w-12 flex-col items-center border-r border-border py-4 gap-4 bg-muted/20">
+        <button
+            class="p-2 rounded-md hover:bg-accent hover:text-accent-foreground text-foreground/70 transition-colors">
+            <lucide-icon [img]="Folder" size="20"></lucide-icon>
+        </button>
+        <button
+            class="p-2 rounded-md hover:bg-accent hover:text-accent-foreground text-foreground/70 transition-colors">
+            <lucide-icon [img]="Network" size="20"></lucide-icon>
+        </button>
+        <button
+            class="p-2 rounded-md hover:bg-accent hover:text-accent-foreground text-foreground/70 transition-colors">
+            <lucide-icon [img]="Hash" size="20"></lucide-icon>
+        </button>
+        <button
+            class="p-2 rounded-md hover:bg-accent hover:text-accent-foreground text-foreground/70 transition-colors">
+            <lucide-icon [img]="Clock" size="20"></lucide-icon>
+        </button>
+        <button
+            class="p-2 rounded-md hover:bg-accent hover:text-accent-foreground text-foreground/70 transition-colors">
+            <lucide-icon [img]="BookOpen" size="20"></lucide-icon>
+        </button>
+
+        <div class="flex-1"></div>
+
+        <button
+            class="p-2 rounded-md hover:bg-accent hover:text-accent-foreground text-foreground/70 transition-colors">
+            <lucide-icon [img]="Settings" size="20"></lucide-icon>
+        </button>
+        <div
+            class="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary cursor-pointer hover:bg-primary/30">
+            CN
+        </div>
+    </div>
+
+    <!-- Panel -->
+    <div class="flex-1 flex flex-col min-w-0">
+        <!-- Panel Header -->
+        <div class="flex items-center justify-between p-4 border-b border-border/40">
+            <h2 class="text-sm font-semibold text-foreground/90">Folders</h2>
+            <div class="flex gap-1">
+                <button class="p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground">
+                    <lucide-icon [img]="Network" size="16"></lucide-icon>
+                </button>
+                <button class="p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground">
+                    <lucide-icon [img]="FolderPlus" size="16"></lucide-icon>
+                </button>
+                <button class="p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground">
+                    <lucide-icon [img]="FilePlus" size="16"></lucide-icon>
+                </button>
+            </div>
+        </div>
+
+        <!-- Search -->
+        <div class="p-3">
+            <div class="relative">
+                <lucide-icon [img]="Search" class="absolute left-2.5 top-2.5 text-muted-foreground"
+                    size="14"></lucide-icon>
+                <input type="text" placeholder="Search... (Ctrl+K)"
+                    class="w-full bg-muted/40 text-sm border border-border/50 rounded-lg pl-8 pr-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            </div>
+        </div>
+
+        <!-- Tree -->
+        <div class="flex-1 overflow-y-auto p-2 space-y-1">
+            <div
+                class="flex items-center gap-2 p-1.5 rounded-md hover:bg-accent/50 text-sm text-foreground/80 cursor-pointer group">
+                <lucide-icon [img]="ChevronRight" size="14"
+                    class="text-muted-foreground group-hover:text-foreground"></lucide-icon>
+                <lucide-icon [img]="Folder" size="16" class="fill-sky-500/20 text-sky-500"></lucide-icon>
+                <span class="truncate">uo</span>
+                <span class="ml-auto text-xs text-muted-foreground">0</span>
+            </div>
+            <div
+                class="flex items-center gap-2 p-1.5 rounded-md hover:bg-accent/50 text-sm text-foreground/80 cursor-pointer group">
+                <lucide-icon [img]="ChevronRight" size="14"
+                    class="text-muted-foreground group-hover:text-foreground"></lucide-icon>
+                <lucide-icon [img]="Folder" size="16" class="fill-sky-500/20 text-sky-500"></lucide-icon>
+                <span class="truncate">survive?</span>
+                <span class="ml-auto text-xs text-muted-foreground">0</span>
+            </div>
+        </div>
+
+        <!-- User Profile Bottom -->
+        <div class="mt-auto p-3 border-t border-border/40 flex items-center gap-3">
+            <div
+                class="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                CN
+            </div>
+            <div class="flex flex-col min-w-0">
+                <span class="text-sm font-medium truncate">Architect</span>
+                <span class="text-xs text-muted-foreground truncate">architect@graphite...</span>
+            </div>
+            <lucide-icon [img]="More" size="16" class="ml-auto text-muted-foreground"></lucide-icon>
+        </div>
+    </div>
+</div>
