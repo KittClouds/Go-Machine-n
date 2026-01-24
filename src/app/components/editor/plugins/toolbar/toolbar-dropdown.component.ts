@@ -19,8 +19,8 @@ export interface DropdownItem {
         <div class="relative inline-block" #dropdownContainer>
             <button
                 type="button"
-                class="flex items-center gap-1 hover:bg-zinc-800 rounded px-1.5 py-1 text-zinc-300 hover:text-white transition-colors"
-                [class.bg-zinc-800]="isOpen"
+                class="flex items-center gap-1 hover:bg-teal-50 rounded px-1.5 py-1 text-slate-500 hover:text-teal-900 transition-colors"
+                [class.bg-teal-50]="isOpen"
                 (mousedown)="$event.preventDefault()"
                 (click)="toggleOpen()"
             >
@@ -30,14 +30,14 @@ export interface DropdownItem {
 
             <!-- Dropdown Menu -->
             <div *ngIf="isOpen" 
-                 class="absolute top-full left-0 mt-1 min-w-[140px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-[100] animate-in fade-in zoom-in-95 duration-100 flex flex-col p-1">
+                 class="absolute top-full left-0 mt-1 min-w-[140px] bg-toolbar border border-toolbar-border rounded-lg shadow-xl z-[100] animate-in fade-in zoom-in-95 duration-100 flex flex-col p-1">
                 
                 <ng-container *ngIf="items.length > 0; else customContent">
                     <button *ngFor="let item of items"
                             type="button"
-                            class="flex items-center gap-2 w-full px-2 py-1.5 text-sm text-left rounded hover:bg-zinc-800 transition-colors"
-                            [class.text-blue-400]="item.active"
-                            [class.bg-zinc-800]="item.active"
+                            class="flex items-center gap-2 w-full px-2 py-1.5 text-sm text-left rounded hover:bg-teal-50 hover:text-teal-900 transition-colors text-toolbar-foreground"
+                            [class.text-teal-600]="item.active"
+                            [class.bg-teal-50]="item.active"
                             (click)="selectItem(item)">
                         <span *ngIf="item.icon" class="w-4 h-4 flex items-center justify-center">
                              <lucide-icon [img]="item.icon" class="w-3 h-3"></lucide-icon>

@@ -31,38 +31,38 @@ import { setTextAlignCommand, indentCommand, outdentCommand } from '../nodes';
     imports: [CommonModule, LucideAngularModule, ToolbarDropdownComponent, ColorPickerComponent],
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: `
-        <div class="flex items-center gap-1 p-1 bg-popover border border-border rounded-lg shadow-xl text-popover-foreground animate-in fade-in zoom-in-95 duration-100">
+        <div class="flex items-center gap-1 p-1 bg-toolbar border border-toolbar-border rounded-lg shadow-xl text-toolbar-foreground animate-in fade-in zoom-in-95 duration-100">
             
             <!-- AI Group -->
             <app-toolbar-dropdown [items]="aiItems" (select)="onAIAction($event)">
                 <div trigger class="flex items-center gap-1 px-1">
-                    <lucide-icon [img]="SparklesIcon" class="w-4 h-4 text-purple-400"></lucide-icon>
+                    <lucide-icon [img]="SparklesIcon" class="w-4 h-4 text-teal-500"></lucide-icon>
                 </div>
             </app-toolbar-dropdown>
 
-            <div class="w-px h-5 bg-border mx-1"></div>
+            <div class="w-px h-5 bg-toolbar-border mx-1"></div>
 
             <!-- Formatting Group -->
-            <button type="button" [class.bg-muted]="isActive(strongSchema)" class="btn-icon" (click)="exec(toggleStrongCommand)" title="Bold">
+            <button type="button" [class.bg-teal-50]="isActive(strongSchema)" [class.text-teal-900]="isActive(strongSchema)" class="btn-icon" (click)="exec(toggleStrongCommand)" title="Bold">
                 <lucide-icon [img]="BoldIcon" class="w-4 h-4"></lucide-icon>
             </button>
-            <button type="button" [class.bg-muted]="isActive(emphasisSchema)" class="btn-icon" (click)="exec(toggleEmphasisCommand)" title="Italic">
+            <button type="button" [class.bg-teal-50]="isActive(emphasisSchema)" [class.text-teal-900]="isActive(emphasisSchema)" class="btn-icon" (click)="exec(toggleEmphasisCommand)" title="Italic">
                 <lucide-icon [img]="ItalicIcon" class="w-4 h-4"></lucide-icon>
             </button>
-            <button type="button" [class.bg-muted]="isActive(underlineSchema)" class="btn-icon" (click)="exec(setUnderlineCommand)" title="Underline">
+            <button type="button" [class.bg-teal-50]="isActive(underlineSchema)" [class.text-teal-900]="isActive(underlineSchema)" class="btn-icon" (click)="exec(setUnderlineCommand)" title="Underline">
                 <lucide-icon [img]="UnderlineIcon" class="w-4 h-4"></lucide-icon>
             </button>
-            <button type="button" [class.bg-muted]="isActive(strikethroughSchema)" class="btn-icon" (click)="exec(toggleStrikethroughCommand)" title="Strikethrough">
+            <button type="button" [class.bg-teal-50]="isActive(strikethroughSchema)" [class.text-teal-900]="isActive(strikethroughSchema)" class="btn-icon" (click)="exec(toggleStrikethroughCommand)" title="Strikethrough">
                 <lucide-icon [img]="StrikeIcon" class="w-4 h-4"></lucide-icon>
             </button>
-            <button type="button" [class.bg-muted]="isActive(inlineCodeSchema)" class="btn-icon" (click)="exec(toggleInlineCodeCommand)" title="Code">
+            <button type="button" [class.bg-teal-50]="isActive(inlineCodeSchema)" [class.text-teal-900]="isActive(inlineCodeSchema)" class="btn-icon" (click)="exec(toggleInlineCodeCommand)" title="Code">
                 <lucide-icon [img]="CodeIcon" class="w-4 h-4"></lucide-icon>
             </button>
-            <button type="button" [class.bg-muted]="isActive(linkSchema)" class="btn-icon" (click)="exec(toggleLinkCommand)" title="Link">
+            <button type="button" [class.bg-teal-50]="isActive(linkSchema)" [class.text-teal-900]="isActive(linkSchema)" class="btn-icon" (click)="exec(toggleLinkCommand)" title="Link">
                 <lucide-icon [img]="LinkIcon" class="w-4 h-4"></lucide-icon>
             </button>
 
-            <div class="w-px h-5 bg-border mx-1"></div>
+            <div class="w-px h-5 bg-toolbar-border mx-1"></div>
 
             <!-- Color Group -->
              <app-toolbar-dropdown>
@@ -82,7 +82,7 @@ import { setTextAlignCommand, indentCommand, outdentCommand } from '../nodes';
             </button>
 
 
-            <div class="w-px h-5 bg-border mx-1"></div>
+            <div class="w-px h-5 bg-toolbar-border mx-1"></div>
 
             <!-- Alignment -->
              <app-toolbar-dropdown [items]="alignItems" (select)="onAlignAction($event)">
@@ -99,7 +99,7 @@ import { setTextAlignCommand, indentCommand, outdentCommand } from '../nodes';
                  <lucide-icon [img]="IndentIcon" class="w-4 h-4"></lucide-icon>
             </button>
 
-             <div class="w-px h-5 bg-border mx-1"></div>
+             <div class="w-px h-5 bg-toolbar-border mx-1"></div>
 
             <!-- Font -->
             <app-toolbar-dropdown [items]="fontItems" (select)="onFontAction($event)">
@@ -121,7 +121,11 @@ import { setTextAlignCommand, indentCommand, outdentCommand } from '../nodes';
             pointer-events: auto;
         }
         .btn-icon {
-            @apply p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex items-center justify-center;
+            @apply p-1.5 rounded hover:bg-teal-50 transition-colors text-slate-500 hover:text-teal-900 flex items-center justify-center;
+        }
+        /* Make icons bolder */
+        :host ::ng-deep svg.lucide {
+            stroke-width: 2.25px;
         }
     `]
 })

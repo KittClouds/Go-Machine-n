@@ -36,44 +36,150 @@
         --input: 0 0% 14.9%;
         --ring: 0 0% 83.1%;
         --radius: 0.5rem;
+
+        /* --- SURFACE OVERRIDES --- */
+
+        /* Header */
+        --header-bg: var(--background);
+        --header-fg: var(--foreground);
+        --header-border: var(--border);
+
+        /* Footer */
+        --footer-bg: var(--muted);
+        --footer-fg: var(--muted-foreground);
+        --footer-border: var(--border);
+
+        /* Sidebar */
+        --sidebar-bg: var(--background);
+        --sidebar-fg: var(--foreground);
+        --sidebar-border: var(--border);
+        --sidebar-accent: var(--accent);
+        --sidebar-accent-fg: var(--accent-foreground);
+
+        /* Editor */
+        --editor-bg: var(--background);
+        --editor-fg: var(--foreground);
+
+        /* Blueprint Hub */
+        --hub-bg: var(--background);
+        --hub-fg: var(--foreground);
+        --hub-border: var(--border);
+
+        /* Floating Toolbar */
+        --toolbar-bg: var(--popover);
+        --toolbar-fg: var(--popover-foreground);
+        --toolbar-border: var(--border);
+
+        /* Block Handle */
+        --block-handle-bg: var(--muted);
+        --block-handle-hover: var(--accent);
     }
 
+    /* --- PROFESSIONAL LIGHT THEME ("Charcoal & Teal") --- */
     .light {
+        /* Base Palette (Tailwind HSL format) */
         --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
+        /* Pure White */
+        --foreground: 222 47% 11%;
+        /* Charcoal (Slate-950) */
+
         --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
+        --card-foreground: 222 47% 11%;
+
         --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
+        --popover-foreground: 222 47% 11%;
+
+        /* BRAND: Dark Teal */
+        --primary: 176 61% 19%;
+        /* Teal-900 */
+        --primary-foreground: 175 70% 96%;
+        /* Teal-50 */
+
+        --secondary: 210 40% 96.1%;
+        /* Slate-100 */
+        --secondary-foreground: 222 47% 11%;
+
+        --muted: 210 40% 96.1%;
+        /* Slate-100 */
+        --muted-foreground: 215 16% 47%;
+        /* Slate-500 */
+
+        --accent: 175 60% 94%;
+        /* Teal-50 / Minty */
+        --accent-foreground: 176 61% 19%;
+        /* Teal-900 */
+
         --destructive: 0 84.2% 60.2%;
         --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
+
+        --border: 214 32% 91%;
+        /* Slate-200 */
+        --input: 214 32% 91%;
+        --ring: 176 61% 19%;
+        /* Teal-900 */
+
         --radius: 0.5rem;
+
+        /* --- SURFACE OVERRIDES --- */
+
+        /* Header: Very light slate/teal tint */
+        --header-bg: 0 0% 100%;
+        /* Let the gradient handle the tint in component */
+        --header-fg: 222 47% 11%;
+        --header-border: 214 32% 91%;
+
+        /* Footer: Subtle contrast */
+        --footer-bg: 210 40% 98%;
+        /* Slate-50 */
+        --footer-fg: 215 16% 47%;
+        --footer-border: 214 32% 91%;
+
+        /* Sidebar: Cool off-white/slate */
+        --sidebar-bg: 210 40% 98%;
+        /* Slate-50 */
+        --sidebar-fg: 222 47% 11%;
+        --sidebar-border: 214 32% 91%;
+        --sidebar-accent: 175 70% 96%;
+        /* Teal-50 */
+        --sidebar-accent-fg: 176 61% 19%;
+        /* Teal-900 */
+
+        /* Editor: Pure paper white */
+        --editor-bg: 0 0% 100%;
+        --editor-fg: 222 47% 11%;
+        /* High contrast text */
+
+        /* Blueprint Hub */
+        --hub-bg: 0 0% 100%;
+        --hub-fg: 222 47% 11%;
+        --hub-border: 214 32% 91%;
+
+        /* Floating Toolbar */
+        --toolbar-bg: 0 0% 100%;
+        /* White popover */
+        --toolbar-fg: 222 47% 11%;
+        --toolbar-border: 214 32% 91%;
+
+        /* Block Handle */
+        --block-handle-bg: 210 40% 96.1%;
+        /* Slate-100 */
+        --block-handle-hover: 175 70% 96%;
+        /* Teal-50 */
     }
 }
 
 /* --- Selection Highlight --- */
 /* --- Selection Highlight --- */
 ::selection {
-    background-color: #fde047;
-    /* yellow-300 */
-    color: black;
+    background-color: #0e7490;
+    /* Cyan-700: Dark Blue-Teal */
+    color: white;
 }
 
 .ProseMirror ::selection {
-    background-color: #fde047;
-    /* yellow-300 */
-    color: black;
+    background-color: #0e7490;
+    /* Cyan-700 */
+    color: white;
 }
 
 @layer base {
@@ -96,4 +202,235 @@
     visibility: hidden !important;
     opacity: 0 !important;
     pointer-events: none !important;
+}
+
+/* --- View Transitions API (Circular Reveal) --- */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+    display: block;
+}
+
+/* --- DARK MODE THEME --- */
+.dark {
+    /* Base Palette (Zinc Dark) */
+    --background: 240 10% 4%;
+    /* Zinc-950 */
+    --foreground: 0 0% 98%;
+    /* Zinc-50 */
+
+    --card: 240 10% 4%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 4%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 175 70% 41%;
+    /* Teal-600 */
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 240 3.7% 15.9%;
+    /* Zinc-800 */
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 3.7% 15.9%;
+    /* Zinc-800 */
+    --muted-foreground: 240 5% 64.9%;
+    /* Zinc-400 */
+
+    --accent: 175 60% 20%;
+    /* Dark Teal Accent */
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 175 70% 41%;
+
+    /* Surfaces */
+    --header-bg: 240 6% 10%;
+    /* Zinc-900 */
+    --header-fg: 0 0% 98%;
+    --header-border: 240 3.7% 15.9%;
+
+    --sidebar-bg: 240 6% 10%;
+    --sidebar-fg: 0 0% 98%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 175 60% 20%;
+    --sidebar-accent-fg: 0 0% 98%;
+
+    --footer-bg: 240 6% 10%;
+    --footer-fg: 240 5% 64.9%;
+    --footer-border: 240 3.7% 15.9%;
+
+    --editor-bg: 240 10% 4%;
+    /* Canvas Dark */
+    --editor-fg: 0 0% 98%;
+
+    --hub-bg: 240 10% 4%;
+    --hub-fg: 0 0% 98%;
+    --hub-border: 240 3.7% 15.9%;
+
+    /* Toolbar */
+    --toolbar-bg: 240 6% 10%;
+    --toolbar-fg: 0 0% 98%;
+    --toolbar-border: 240 3.7% 15.9%;
+
+    /* Block Handle */
+    --block-handle-bg: 240 3.7% 15.9%;
+    --block-handle-hover: 175 60% 20%;
+}
+
+/* ============================================
+   COLLAPSIBLE DETAILS PLUGIN STYLES
+   ============================================ */
+
+.milkdown-details {
+    margin: 0.75rem 0;
+    border-left: 2px solid rgba(100, 100, 100, 0.2);
+    padding-left: 1rem;
+    position: relative;
+    /* transition: border-left-color 0.2s; */
+}
+
+/* Dark mode adjustment for border */
+.dark .milkdown-details {
+    border-left-color: rgba(255, 255, 255, 0.1);
+}
+
+.milkdown-details .milkdown-details {
+    margin-left: 0.5rem;
+}
+
+.milkdown-details-summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+    padding: 0.25rem 0;
+    position: relative;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--foreground);
+}
+
+.milkdown-details-summary::-webkit-details-marker {
+    display: none;
+}
+
+.milkdown-details-summary::marker {
+    display: none;
+}
+
+/* Custom disclosure triangle */
+.milkdown-details-summary::before {
+    content: '▶';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    font-size: 0.55rem;
+    transition: transform 0.2s ease, color 0.2s ease;
+    color: rgba(150, 150, 150, 0.7);
+    flex-shrink: 0;
+}
+
+/* Purple circle indicator (collapsed state) */
+.milkdown-details:not([open])>.milkdown-details-summary::after {
+    content: '';
+    position: absolute;
+    left: 1.1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #8b5cf6;
+    pointer-events: none;
+}
+
+/* Open state: rotate arrow */
+.milkdown-details[open]>.milkdown-details-summary::before {
+    transform: rotate(90deg);
+}
+
+.milkdown-details[open]>.milkdown-details-summary::after {
+    display: none;
+}
+
+/* Hover state */
+.milkdown-details-summary:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+    border-radius: 4px;
+    margin-left: -0.25rem;
+    padding-left: 0.25rem;
+}
+
+.dark .milkdown-details-summary:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Content area */
+.milkdown-details-content {
+    padding: 0.25rem 0 0.25rem 0;
+    position: relative;
+    margin-left: 0.25rem;
+}
+
+/* Slide animation */
+.milkdown-details[open]>.milkdown-details-content {
+    animation: detailsSlideDown 0.2s ease;
+}
+
+@keyframes detailsSlideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.milkdown-details:not([open])>.milkdown-details-content {
+    display: none;
+}
+
+/* Vertical connector line inside content */
+.milkdown-details-content::before {
+    content: '';
+    position: absolute;
+    left: -0.75rem;
+    top: 0;
+    bottom: 0.25rem;
+    width: 1px;
+    background-color: rgba(100, 100, 100, 0.2);
+    pointer-events: none;
+}
+
+/* Nested Details Indentation */
+.milkdown-details .milkdown-details .milkdown-details-content {
+    margin-left: 0.5rem;
+}
+
+.milkdown-details .milkdown-details .milkdown-details .milkdown-details-content {
+    margin-left: 0.75rem;
+}
+
+/* Focus State */
+.milkdown-details:focus-within {
+    border-left-color: rgba(139, 92, 246, 0.4);
+}
+
+.milkdown-details-summary:focus {
+    outline: none;
+    background-color: rgba(139, 92, 246, 0.1);
+    border-radius: 4px;
 }

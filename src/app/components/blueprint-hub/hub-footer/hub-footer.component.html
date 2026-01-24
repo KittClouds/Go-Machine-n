@@ -1,11 +1,11 @@
 <div
-    class="h-8 bg-background border-t border-border flex items-center justify-between px-3 text-xs select-none z-50 relative shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
+    class="h-8 bg-slate-900 text-slate-400 border-t border-teal-900 flex items-center justify-between px-3 text-xs select-none z-50 relative shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
     <!-- Left: Hub Trigger -->
     <div class="flex items-center gap-4">
         <!-- Hub Toggle -->
         <button (click)="hubService.toggle()" class="flex items-center gap-2 transition-colors focus:outline-none group"
-            [class.text-primary]="hubService.isHubOpen()" [class.font-semibold]="hubService.isHubOpen()"
-            [class.text-muted-foreground]="!hubService.isHubOpen()">
+            [class.text-teal-400]="hubService.isHubOpen()" [class.font-semibold]="hubService.isHubOpen()"
+            [class.text-slate-400]="!hubService.isHubOpen()" [class.hover:text-white]="true">
             <i class="pi" [class.pi-angle-up]="!hubService.isHubOpen()"
                 [class.pi-angle-down]="hubService.isHubOpen()"></i>
 
@@ -16,23 +16,23 @@
             <span class="ml-1 opacity-70 group-hover:opacity-100 transition-opacity">28 entities</span>
         </button>
 
-        <div class="h-3 w-[1px] bg-border"></div>
+        <div class="h-3 w-[1px] bg-teal-900"></div>
 
         <!-- Scope Selector (Mock) -->
-        <button class="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+        <button class="flex items-center gap-1 text-slate-400 hover:text-white transition-colors">
             <i class="pi pi-globe text-[10px]"></i>
             <span>Global</span>
         </button>
 
-        <button class="text-muted-foreground hover:text-foreground">
+        <button class="text-slate-400 hover:text-white">
             <i class="pi pi-volume-up text-[10px]"></i>
         </button>
     </div>
 
     <!-- Right: Editor Stats -->
-    <div class="flex items-center gap-4 text-muted-foreground">
-        <span class="hover:text-foreground cursor-pointer transition-colors">0 backlinks</span>
-        <span class="hover:text-foreground cursor-pointer transition-colors">3 words</span>
+    <div class="flex items-center gap-4 text-slate-400">
+        <span class="hover:text-white cursor-pointer transition-colors">0 backlinks</span>
+        <span class="hover:text-white cursor-pointer transition-colors">3 words</span>
         <span>17 chars</span>
         <span>2 notes</span>
         <button

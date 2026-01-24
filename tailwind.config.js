@@ -3,6 +3,7 @@ module.exports = {
   content: [
     "./src/**/*.{html,ts}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -38,6 +39,39 @@ module.exports = {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+
+        /* Semantic Surfaces */
+        header: {
+          DEFAULT: "hsl(var(--header-bg))",
+          foreground: "hsl(var(--header-fg))",
+          border: "hsl(var(--header-border))",
+        },
+        footer: {
+          DEFAULT: "hsl(var(--footer-bg))",
+          foreground: "hsl(var(--footer-fg))",
+          border: "hsl(var(--footer-border))",
+        },
+        sidebar: {
+          DEFAULT: "hsl(var(--sidebar-bg))",
+          foreground: "hsl(var(--sidebar-fg))",
+          border: "hsl(var(--sidebar-border))",
+          accent: "hsl(var(--sidebar-accent))",
+          'accent-foreground': "hsl(var(--sidebar-accent-fg))",
+        },
+        editor: {
+          DEFAULT: "hsl(var(--editor-bg))",
+          foreground: "hsl(var(--editor-fg))",
+        },
+        hub: {
+          DEFAULT: "hsl(var(--hub-bg))",
+          foreground: "hsl(var(--hub-fg))",
+          border: "hsl(var(--hub-border))",
+        },
+        toolbar: {
+          DEFAULT: "hsl(var(--toolbar-bg))",
+          foreground: "hsl(var(--toolbar-fg))",
+          border: "hsl(var(--toolbar-border))",
         },
       },
       borderRadius: {

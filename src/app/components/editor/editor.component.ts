@@ -25,6 +25,7 @@ import {
 } from './plugins/marks';
 import { textAlignPlugin, setTextAlignCommand, indentPlugin, indentCommand, outdentCommand } from './plugins/nodes';
 import { entityHighlighter } from './plugins/entityHighlighter';
+import { detailsNodes, detailsInteractivePlugin } from './plugins/details';
 import { history, undoCommand, redoCommand } from '@milkdown/kit/plugin/history';
 import { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
 import { EditorService } from '../../services/editor.service';
@@ -94,7 +95,9 @@ export class EditorComponent implements AfterViewInit, OnDestroy {
             .config(indentPlugin)
             .use(indentCommand)
             .use(outdentCommand)
-            .use(entityHighlighter);
+            .use(entityHighlighter)
+            .use(detailsNodes)
+            .use(detailsInteractivePlugin);
 
         await this.crepe.create();
         this.editorService.registerEditor(this.crepe);

@@ -18,6 +18,7 @@ import {
 
 import { NodeSelection } from '@milkdown/kit/prose/state';
 import { setTextAlignCommand } from '../nodes';
+import { insertDetailsCommand } from '../details';
 
 type Tab = 'text' | 'list' | 'advanced' | 'actions';
 
@@ -27,89 +28,114 @@ type Tab = 'text' | 'list' | 'advanced' | 'actions';
     imports: [CommonModule, LucideAngularModule],
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: `
-        <div class="flex flex-col w-64 bg-popover border border-border rounded-lg shadow-xl overflow-hidden text-sm text-popover-foreground">
-            <div class="flex border-b border-border bg-muted/50">
+        <div class="flex flex-col w-[280px] bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden font-sans text-sm animate-in fade-in zoom-in-95 duration-100">
+            <!-- Tabs -->
+            <div class="flex items-end w-full border-b border-zinc-800 bg-zinc-950 pt-2 px-2 gap-1 select-none">
                 <button
                     *ngFor="let tab of tabs"
-                    class="flex-1 px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    [class.text-primary]="activeTab() === tab.id"
-                    [class.border-b-2]="activeTab() === tab.id"
-                    [class.border-primary]="activeTab() === tab.id"
-                    [class.text-muted-foreground]="activeTab() !== tab.id"
+                    class="flex-1 py-1.5 text-xs transition-all rounded-t-md relative top-[1px] text-center border-t border-l border-r"
+                    [class.bg-zinc-900]="activeTab() === tab.id"
+                    [class.border-zinc-800]="activeTab() === tab.id"
+                    [class.text-white]="activeTab() === tab.id"
+                    [class.font-semibold]="activeTab() === tab.id"
+                    [class.z-10]="activeTab() === tab.id"
+                    
+                    [class.bg-transparent]="activeTab() !== tab.id"
+                    [class.border-transparent]="activeTab() !== tab.id"
+                    [class.text-zinc-500]="activeTab() !== tab.id"
+                    [class.hover:text-zinc-400]="activeTab() !== tab.id"
+                    [class.hover:bg-zinc-900/50]="activeTab() !== tab.id"
                     (click)="activeTab.set(tab.id)"
                 >
                     {{ tab.label }}
                 </button>
             </div>
 
-            <div class="p-1 min-h-[160px] max-h-[300px] overflow-y-auto custom-scrollbar">
+            <div class="p-1 min-h-[160px] max-h-[320px] overflow-y-auto custom-scrollbar bg-zinc-900">
                 
                 <!-- TEXT TAB -->
                 <ng-container *ngIf="activeTab() === 'text'">
-                    <div class="px-2 py-1 text-xs text-muted-foreground font-bold uppercase tracking-wider">Turn Into</div>
-                    <button class="menu-item" (click)="run(insertParagraph)">
-                        <lucide-icon [img]="Pilcrow" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertParagraph)">
+                        <lucide-icon [img]="Pilcrow" [class]="menuIconClass"></lucide-icon>
                         Paragraph
                     </button>
-                    <button class="menu-item" (click)="run(insertHeading(1))">
-                        <lucide-icon [img]="Heading1" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    
+                    <div class="h-px bg-zinc-800 my-1 mx-2"></div>
+
+                    <button [class]="menuItemClass" (click)="run(insertHeading(1))">
+                        <lucide-icon [img]="Heading1" [class]="menuIconClass"></lucide-icon>
                         Heading 1
                     </button>
-                    <button class="menu-item" (click)="run(insertHeading(2))">
-                        <lucide-icon [img]="Heading2" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertHeading(2))">
+                        <lucide-icon [img]="Heading2" [class]="menuIconClass"></lucide-icon>
                         Heading 2
                     </button>
-                    <button class="menu-item" (click)="run(insertHeading(3))">
-                        <lucide-icon [img]="Heading3" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertHeading(3))">
+                        <lucide-icon [img]="Heading3" [class]="menuIconClass"></lucide-icon>
                         Heading 3
                     </button>
-                    <button class="menu-item" (click)="run(insertQuote)">
-                        <lucide-icon [img]="Quote" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertHeading(4))">
+                        <lucide-icon [img]="Heading4" [class]="menuIconClass"></lucide-icon>
+                        Heading 4
+                    </button>
+                     <button [class]="menuItemClass" (click)="run(insertHeading(5))">
+                        <lucide-icon [img]="Heading5" [class]="menuIconClass"></lucide-icon>
+                        Heading 5
+                    </button>
+                    <button [class]="menuItemClass" (click)="run(insertHeading(6))">
+                        <lucide-icon [img]="Heading6" [class]="menuIconClass"></lucide-icon>
+                        Heading 6
+                    </button>
+
+                    <div class="h-px bg-zinc-800 my-1 mx-2"></div>
+
+                    <button [class]="menuItemClass" (click)="run(insertQuote)">
+                        <lucide-icon [img]="Quote" [class]="menuIconClass"></lucide-icon>
                         Quote
                     </button>
-                     <button class="menu-item" (click)="run(insertDivider)">
-                        <lucide-icon [img]="Minus" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                     <button [class]="menuItemClass" (click)="run(insertDivider)">
+                        <lucide-icon [img]="Minus" [class]="menuIconClass"></lucide-icon>
                         Divider
                     </button>
                 </ng-container>
 
                 <!-- LIST TAB -->
                  <ng-container *ngIf="activeTab() === 'list'">
-                    <button class="menu-item" (click)="run(insertBulletList)">
-                        <lucide-icon [img]="List" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertBulletList)">
+                        <lucide-icon [img]="List" [class]="menuIconClass"></lucide-icon>
                         Bullet List
                     </button>
-                    <button class="menu-item" (click)="run(insertOrderedList)">
-                        <lucide-icon [img]="ListOrdered" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertOrderedList)">
+                        <lucide-icon [img]="ListOrdered" [class]="menuIconClass"></lucide-icon>
                         Ordered List
                     </button>
-                    <button class="menu-item" (click)="run(insertTaskList)">
-                        <lucide-icon [img]="CheckSquare" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(insertTaskList)">
+                        <lucide-icon [img]="CheckSquare" [class]="menuIconClass"></lucide-icon>
                         Task List
                     </button>
                 </ng-container>
 
                 <!-- ADVANCED TAB -->
                 <ng-container *ngIf="activeTab() === 'advanced'">
-                     <button class="menu-item" (click)="run(insertCodeBlock)">
-                        <lucide-icon [img]="Code" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                     <button [class]="menuItemClass" (click)="run(insertCodeBlock)">
+                        <lucide-icon [img]="Code" [class]="menuIconClass"></lucide-icon>
                         Code Block
                     </button>
                     <!-- Stubs -->
-                    <button class="menu-item" (click)="stub('Image')">
-                        <lucide-icon [img]="Image" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="stub('Image')">
+                        <lucide-icon [img]="Image" [class]="menuIconClass"></lucide-icon>
                         Image
                     </button>
-                     <button class="menu-item" (click)="stub('Collapsible')">
-                        <lucide-icon [img]="ChevronDown" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
-                        Collapsible Section
+                     <button [class]="menuItemClass" (click)="run(insertDetails)">
+                        <lucide-icon [img]="ChevronDown" [class]="menuIconClass"></lucide-icon>
+                        Collapsible Details
                     </button>
-                    <button class="menu-item" (click)="stub('Table')">
-                        <lucide-icon [img]="Table" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="stub('Table')">
+                        <lucide-icon [img]="Table" [class]="menuIconClass"></lucide-icon>
                         Table
                     </button>
-                     <button class="menu-item" (click)="stub('Math')">
-                        <lucide-icon [img]="Calculator" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                     <button [class]="menuItemClass" (click)="stub('Math')">
+                        <lucide-icon [img]="Calculator" [class]="menuIconClass"></lucide-icon>
                         Math
                     </button>
                 </ng-container>
@@ -117,26 +143,28 @@ type Tab = 'text' | 'list' | 'advanced' | 'actions';
                  <!-- ACTIONS TAB -->
                 <ng-container *ngIf="activeTab() === 'actions'">
 
-                    <button class="menu-item" (click)="run(duplicateBlock)">
-                        <lucide-icon [img]="Copy" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(duplicateBlock)">
+                        <lucide-icon [img]="Copy" [class]="menuIconClass"></lucide-icon>
                         Duplicate
                     </button>
-                     <button class="menu-item" (click)="run(copyToClipboard)">
-                        <lucide-icon [img]="Clipboard" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                     <button [class]="menuItemClass" (click)="run(copyToClipboard)">
+                        <lucide-icon [img]="Clipboard" [class]="menuIconClass"></lucide-icon>
                         Copy to Clipboard
                     </button>
-                    <div class="h-px bg-border my-1 mx-2"></div>
-                    <div class="px-2 py-1 text-xs text-muted-foreground font-bold uppercase tracking-wider">Align</div>
-                     <button class="menu-item" (click)="run(align('left'))">
-                        <lucide-icon [img]="AlignLeft" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    
+                    <div class="h-px bg-zinc-800 my-2 mx-2"></div>
+                    
+                    <div class="px-2 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Align</div>
+                     <button [class]="menuItemClass" (click)="run(align('left'))">
+                        <lucide-icon [img]="AlignLeft" [class]="menuIconClass"></lucide-icon>
                         Left
                     </button>
-                    <button class="menu-item" (click)="run(align('center'))">
-                        <lucide-icon [img]="AlignCenter" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(align('center'))">
+                        <lucide-icon [img]="AlignCenter" [class]="menuIconClass"></lucide-icon>
                         Center
                     </button>
-                    <button class="menu-item" (click)="run(align('right'))">
-                        <lucide-icon [img]="AlignRight" class="w-4 h-4 mr-2 text-muted-foreground"></lucide-icon>
+                    <button [class]="menuItemClass" (click)="run(align('right'))">
+                        <lucide-icon [img]="AlignRight" [class]="menuIconClass"></lucide-icon>
                         Right
                     </button>
                 </ng-container>
@@ -145,9 +173,7 @@ type Tab = 'text' | 'list' | 'advanced' | 'actions';
         </div>
     `,
     styles: [`
-        .menu-item {
-            @apply flex items-center w-full px-2 py-1.5 text-foreground rounded hover:bg-muted transition-colors text-left;
-        }
+        /* Custom styled scrollbar */
         .custom-scrollbar::-webkit-scrollbar {
             width: 4px;
         }
@@ -155,7 +181,10 @@ type Tab = 'text' | 'list' | 'advanced' | 'actions';
             background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            @apply bg-border rounded;
+            @apply bg-zinc-700 rounded;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            @apply bg-zinc-600;
         }
     `]
 })
@@ -163,6 +192,9 @@ export class BlockMenuComponent {
     @Input() ctx!: Ctx;
     @Input() activeBlock: any;
     @Output() close = new EventEmitter<void>();
+
+    readonly menuItemClass = 'group flex items-center w-full px-3 py-2 text-zinc-300 text-[13px] font-medium rounded hover:bg-zinc-800 hover:text-white transition-colors text-left';
+    readonly menuIconClass = 'w-4 h-4 mr-3 text-zinc-500 group-hover:text-white transition-colors';
 
     activeTab = signal<Tab>('text');
 
@@ -283,6 +315,12 @@ export class BlockMenuComponent {
         const commands = ctx.get(commandsCtx);
         commands.call(clearTextInCurrentBlockCommand.key);
         commands.call(setBlockTypeCommand.key, { nodeType: codeBlockSchema.type(ctx) });
+    }
+
+    insertDetails = (ctx: Ctx) => {
+        const commands = ctx.get(commandsCtx);
+        commands.call(clearTextInCurrentBlockCommand.key);
+        commands.call(insertDetailsCommand.key);
     }
 
     align = (alignment: 'left' | 'center' | 'right') => (ctx: Ctx) => {

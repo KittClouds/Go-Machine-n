@@ -1,8 +1,9 @@
-<div class="absolute bottom-8 left-0 right-0 z-40 bg-background border-t border-border shadow-[0_-5px_10px_rgba(0,0,0,0.1)] flex flex-col translate-y-full transition-transform duration-300 ease-in-out"
-    [class.translate-y-0]="hubService.isHubOpen()" style="height: 60vh;">
+<div class="absolute bottom-8 left-0 right-0 z-40 bg-hub text-hub-foreground border-t border-hub-border shadow-[0_-5px_10px_rgba(0,0,0,0.1)] flex flex-col transition-transform duration-300 ease-in-out"
+    [class.translate-y-full]="!hubService.isHubOpen()" [class.translate-y-0]="hubService.isHubOpen()"
+    style="height: 60vh;">
     <!-- Header/Tabs -->
     <div
-        class="flex items-center border-b border-border bg-muted/40 px-2 overflow-x-auto shrink-0 h-10 backdrop-blur-sm">
+        class="flex items-center border-b border-hub-border bg-muted/40 px-2 overflow-x-auto shrink-0 h-10 backdrop-blur-sm">
         <button *ngFor="let tab of tabs"
             class="flex items-center gap-2 px-4 h-full text-xs font-medium border-b-2 transition-colors whitespace-nowrap focus:outline-none"
             [class.border-primary]="activeTab === tab.id" [class.text-foreground]="activeTab === tab.id"
@@ -23,7 +24,7 @@
     </div>
 
     <!-- Content Area -->
-    <div class="flex-1 overflow-hidden bg-background relative">
+    <div class="flex-1 overflow-hidden bg-hub relative">
         <ng-container [ngSwitch]="activeTab">
             <app-graph-tab *ngSwitchCase="'graph'" class="h-full w-full block"></app-graph-tab>
             <app-theme-tab *ngSwitchCase="'theme'" class="h-full w-full block"></app-theme-tab>

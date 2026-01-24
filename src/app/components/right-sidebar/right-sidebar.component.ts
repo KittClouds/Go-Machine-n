@@ -9,13 +9,13 @@ import { RightSidebarService } from '../../lib/services/right-sidebar.service';
     imports: [CommonModule, LucideAngularModule],
     template: `
         <aside
-            class="h-full border-l border-border bg-sidebar flex flex-col transition-all duration-300 ease-in-out overflow-hidden"
+            class="h-full border-l border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-in-out overflow-hidden"
             [class.w-80]="service.isOpen()"
             [class.w-0]="service.isClosed()">
             
             <!-- Header -->
-            <div class="h-10 flex items-center justify-between px-3 border-b border-border shrink-0">
-                <span class="text-sm font-semibold text-foreground" *ngIf="service.isOpen()">Details</span>
+            <div class="h-10 flex items-center justify-between px-3 border-b border-teal-900 bg-gradient-to-l from-slate-900 to-slate-800 text-slate-200 shrink-0 shadow-sm">
+                <span class="text-sm font-semibold text-slate-200" *ngIf="service.isOpen()">Details</span>
             </div>
 
             <!-- Content (Blank) -->

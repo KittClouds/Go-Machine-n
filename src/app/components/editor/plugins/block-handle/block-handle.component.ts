@@ -14,17 +14,23 @@ import { BlockMenuComponent } from './block-menu.component';
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: `
         <div class="relative group">
-            <div class="flex items-center gap-1 p-0.5 bg-popover border border-border rounded shadow-md text-muted-foreground transition-colors select-none">
-                <div class="cursor-pointer hover:text-foreground p-0.5 rounded hover:bg-muted" 
+            <div class="flex items-center p-[2px] bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-sm shadow-sm transition-all select-none gap-0">
+                <!-- Plus Button -->
+                <div class="cursor-pointer text-teal-700 dark:text-teal-400 hover:text-teal-900 dark:hover:text-teal-200 p-[3px] rounded-[2px] hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors" 
                      (click)="toggleMenu($event)"
                      (mousedown)="$event.preventDefault()"
                      title="Add Block">
-                     <lucide-icon [img]="PlusIcon" class="w-4 h-4"></lucide-icon>
+                     <lucide-icon [img]="PlusIcon" class="w-[18px] h-[18px] stroke-[2.5px]"></lucide-icon>
                 </div>
-                <div class="cursor-grab hover:text-foreground p-0.5 rounded hover:bg-muted"
+
+                <!-- Vertical Separator -->
+                <div class="w-px h-3.5 bg-slate-200 dark:bg-zinc-700 mx-[2px]"></div>
+
+                <!-- Drag Handle -->
+                <div class="cursor-grab text-teal-700 dark:text-teal-400 hover:text-teal-900 dark:hover:text-teal-200 p-[3px] rounded-[2px] hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors"
                      draggable="true"
                      title="Drag to move">
-                     <lucide-icon [img]="GripIcon" class="w-4 h-4"></lucide-icon>
+                     <lucide-icon [img]="GripIcon" class="w-[18px] h-[18px] stroke-[2.5px]"></lucide-icon>
                 </div>
             </div>
 

@@ -5,11 +5,14 @@ import {
     Undo,
     Redo,
     PanelLeft,
-    PanelRight
+    PanelRight,
+    Sun,
+    Moon
 } from 'lucide-angular';
 import { EditorService } from '../../services/editor.service';
 import { SidebarService } from '../../lib/services/sidebar.service';
 import { RightSidebarService } from '../../lib/services/right-sidebar.service';
+import { ThemeService } from '../../lib/services/theme.service';
 
 @Component({
     selector: 'app-header',
@@ -23,9 +26,12 @@ export class HeaderComponent {
     readonly Redo = Redo;
     readonly PanelLeft = PanelLeft;
     readonly PanelRight = PanelRight;
+    readonly Sun = Sun;
+    readonly Moon = Moon;
 
     sidebarService = inject(SidebarService);
     rightSidebarService = inject(RightSidebarService);
+    themeService = inject(ThemeService);
 
     constructor(private editorService: EditorService) { }
 

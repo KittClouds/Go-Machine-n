@@ -9,8 +9,8 @@
  * Derived from Tailwind config and Spartan tokens
  */
 .crepe-host {
-    --crepe-color-background: hsl(var(--background));
-    --crepe-color-on-background: hsl(var(--foreground));
+    --crepe-color-background: hsl(var(--editor-bg));
+    --crepe-color-on-background: hsl(var(--editor-fg));
     --crepe-color-surface: hsl(var(--card));
     --crepe-color-on-surface: hsl(var(--card-foreground));
     --crepe-color-outline: hsl(var(--border));
@@ -22,7 +22,7 @@
     --crepe-font-code: theme('fontFamily.mono');
 
     /* Adjust Crepe internal CSS vars if necessary to force dark theme look */
-    color: hsl(var(--foreground));
+    color: hsl(var(--editor-fg));
 }
 
 /* Ensure the internal milkdown editor takes full height */
@@ -42,20 +42,20 @@
     max-width: none !important;
     /* Force full width */
     margin: 0 !important;
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: hsl(var(--editor-bg));
+    color: hsl(var(--editor-fg));
     box-sizing: border-box;
 }
 
 :deep(.milkdown) {
     height: 100%;
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: hsl(var(--editor-bg));
+    color: hsl(var(--editor-fg));
 }
 
 .crepe-host {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: hsl(var(--editor-bg));
+    color: hsl(var(--editor-fg));
 }
 
 /* --- TOOLBAR VISIBILITY LOGIC (Default Hidden) --- */
