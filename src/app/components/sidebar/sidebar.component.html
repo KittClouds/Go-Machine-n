@@ -1,109 +1,136 @@
-<!-- Sidebar Shell -->
-<aside
-    class="h-full border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-in-out overflow-hidden"
-    [class.w-64]="sidebarService.isOpen()" [class.w-14]="sidebarService.isCollapsed()"
-    [class.w-0]="sidebarService.isClosed()">
+<!-- Two-Rail Sidebar: Icon Rail (always visible) + Content Panel (collapsible) -->
+<div class="flex h-full">
+    <!-- ═══════════════════════════════════════════════════════════════════════════ 
+         ICON RAIL (Always Visible)
+         ═══════════════════════════════════════════════════════════════════════════ -->
+    <div class="w-12 h-full flex flex-col border-r border-sidebar-border bg-sidebar shrink-0">
+        <!-- Top Section: New Note -->
+        <div class="h-10 flex items-center justify-center border-b border-sidebar-border bg-[#18181b]">
+            <button
+                class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-white transition-colors"
+                title="New Note" (click)="createNote()">
+                <lucide-icon [img]="Plus" size="18"></lucide-icon>
+            </button>
+        </div>
 
-    <!-- Sidebar Header with Action Buttons -->
-    <div class="h-10 flex items-center justify-between px-3 border-b border-teal-900/40 bg-gradient-to-r from-[#18181b] via-[#0f2a2e] to-[#134e4a] text-slate-200 shrink-0 shadow-sm"
-        [class.px-2]="sidebarService.isCollapsed()" [class.justify-center]="sidebarService.isCollapsed()">
-
-        <!-- Title (only when open) -->
-        <span *ngIf="sidebarService.isOpen()" class="text-sm font-semibold text-slate-200">Navigator</span>
-
-        <!-- Quick Action Buttons -->
-        <div class="flex items-center gap-1" [class.flex-col]="sidebarService.isCollapsed()">
-            <!-- New Note Button -->
-            <button class="p-1.5 rounded-md hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                [title]="sidebarService.isCollapsed() ? 'New Note' : ''" (click)="createNote()">
-                <lucide-icon [img]="Plus" size="16"></lucide-icon>
+        <!-- Main Navigation Icons -->
+        <div class="flex-1 flex flex-col items-center py-3 gap-1.5 overflow-y-auto">
+            <!-- Files -->
+            <button class="w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200"
+                [class.bg-teal-500_20]="viewMode() === 'files'" [class.text-teal-300]="viewMode() === 'files'"
+                [class.text-slate-500]="viewMode() !== 'files'" [class.hover:text-slate-300]="viewMode() !== 'files'"
+                [class.hover:bg-white_5]="viewMode() !== 'files'" title="Files" (click)="setViewMode('files')">
+                <lucide-icon [img]="FileText" size="18"></lucide-icon>
             </button>
 
-            <!-- Folder Dropdown Trigger (only when open) -->
-            <div class="relative" *ngIf="sidebarService.isOpen()">
-                <button class="p-1.5 rounded-md hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                    title="New Folder" (click)="toggleFolderDropdown()">
-                    <lucide-icon [img]="FolderPlus" size="16"></lucide-icon>
-                </button>
+            <!-- Narrative -->
+            <button
+                class="w-9 h-9 flex items-center justify-center rounded-lg text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all duration-200"
+                title="Create Narrative Vault" (click)="createNarrative()">
+                <lucide-icon [img]="BookOpen" size="18"></lucide-icon>
+            </button>
 
-                <!-- Folder Dropdown Menu -->
-                <div *ngIf="folderDropdownOpen()"
-                    class="absolute top-full left-0 mt-1 z-[1000] min-w-56 bg-popover border border-border rounded-lg shadow-xl py-1 text-sm">
+            <!-- Calendar -->
+            <button
+                class="w-9 h-9 flex items-center justify-center rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all duration-200"
+                title="Fantasy Calendar" (click)="navigateToCalendar()">
+                <lucide-icon [img]="Calendar" size="18"></lucide-icon>
+            </button>
 
-                    <!-- Entity Folders Header -->
-                    <div class="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Entity Folders
+            <!-- Search -->
+            <button class="w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200"
+                [class.bg-teal-500_20]="viewMode() === 'search'" [class.text-teal-300]="viewMode() === 'search'"
+                [class.text-teal-400]="viewMode() !== 'search'" [class.hover:text-teal-300]="viewMode() !== 'search'"
+                [class.hover:bg-teal-500_10]="viewMode() !== 'search'" title="Semantic Search"
+                (click)="setViewMode('search')">
+                <lucide-icon [img]="Search" size="18"></lucide-icon>
+            </button>
+        </div>
+
+        <!-- Bottom Section: Collapse Toggle -->
+        <div class="h-8 flex items-center justify-center border-t border-sidebar-border">
+            <button
+                class="w-6 h-6 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors"
+                [title]="sidebarService.isOpen() ? 'Collapse Panel' : 'Expand Panel'"
+                (click)="sidebarService.toggleCollapse()">
+                <lucide-icon [img]="sidebarService.isOpen() ? PanelLeftClose : PanelLeft" size="14"></lucide-icon>
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════ 
+         CONTENT PANEL (Collapsible)
+         ═══════════════════════════════════════════════════════════════════════════ -->
+    <aside
+        class="h-full border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 ease-in-out overflow-hidden"
+        [class.w-60]="sidebarService.isOpen()" [class.w-0]="!sidebarService.isOpen()">
+
+        <!-- Panel Header -->
+        <div
+            class="h-10 flex items-center justify-between px-3 border-b border-sidebar-border shrink-0 bg-gradient-to-r from-[#18181b] via-[#0f2a2e] to-[#134e4a] text-slate-200">
+            <span class="text-sm font-semibold text-slate-200">
+                {{ viewMode() === 'files' ? 'Folders' : 'Search' }}
+            </span>
+
+            <!-- Header Actions (only for files view) -->
+            <div *ngIf="viewMode() === 'files'" class="flex items-center gap-0.5">
+                <!-- Folder Dropdown Trigger -->
+                <div class="relative">
+                    <button
+                        class="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                        title="New Folder" (click)="toggleFolderDropdown()">
+                        <lucide-icon [img]="FolderPlus" size="14"></lucide-icon>
+                    </button>
+
+                    <!-- Folder Dropdown Menu -->
+                    <div *ngIf="folderDropdownOpen()"
+                        class="absolute top-full right-0 mt-1 z-[1000] min-w-56 bg-popover border border-border rounded-lg shadow-xl py-1 text-sm">
+
+                        <!-- Entity Folders Header -->
+                        <div class="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            Entity Folders
+                        </div>
+
+                        <!-- Entity Folder Options -->
+                        <button *ngFor="let option of entityFolderOptions" class="folder-menu-item"
+                            (click)="createEntityFolder(option)">
+                            <lucide-icon [img]="option.icon" size="14" [style.color]="option.color"></lucide-icon>
+                            <span class="flex-1">{{ option.label }}</span>
+                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                                [style.background-color]="option.color" [style.color]="'white'">
+                                {{ option.entityKind }}
+                            </span>
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="h-px bg-border my-1"></div>
+
+                        <!-- Regular Folder -->
+                        <button class="folder-menu-item" (click)="createRegularFolder()">
+                            <lucide-icon [img]="Folder" size="14" class="text-muted-foreground"></lucide-icon>
+                            <span class="flex-1">Regular Folder</span>
+                        </button>
                     </div>
-
-                    <!-- Entity Folder Options -->
-                    <button *ngFor="let option of entityFolderOptions" class="folder-menu-item"
-                        (click)="createEntityFolder(option)">
-                        <lucide-icon [img]="option.icon" size="14" [style.color]="option.color"></lucide-icon>
-                        <span class="flex-1">{{ option.label }}</span>
-                        <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                            [style.background-color]="option.color" [style.color]="'white'">
-                            {{ option.entityKind }}
-                        </span>
-                    </button>
-
-                    <!-- Divider -->
-                    <div class="h-px bg-border my-1"></div>
-
-                    <!-- Regular Folder -->
-                    <button class="folder-menu-item" (click)="createRegularFolder()">
-                        <lucide-icon [img]="Folder" size="14" class="text-muted-foreground"></lucide-icon>
-                        <span class="flex-1">Regular Folder</span>
-                    </button>
                 </div>
             </div>
-
-            <!-- Create Narrative Vault Button -->
-            <button
-                class="p-1.5 rounded-md hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 transition-colors"
-                [title]="sidebarService.isCollapsed() ? 'New Narrative' : 'Create Narrative Vault'"
-                (click)="createNarrative()">
-                <lucide-icon [img]="BookOpen" size="16"></lucide-icon>
-            </button>
         </div>
-    </div>
 
-    <!-- Backdrop to close dropdown -->
-    <div *ngIf="folderDropdownOpen()" class="fixed inset-0 z-40" (click)="closeFolderDropdown()">
-    </div>
-
-    <!-- Sidebar Content -->
-    <div class="flex-1 overflow-hidden">
-        <!-- Full tree when open -->
-        <app-file-tree *ngIf="sidebarService.isOpen()" [tree]="treeData()"></app-file-tree>
-
-        <!-- Collapsed icons view -->
-        <div *ngIf="sidebarService.isCollapsed()" class="flex flex-col items-center py-2 gap-1 overflow-y-auto h-full">
-            <!-- Icon only list -->
-            <button *ngFor="let node of collapsedNodes()"
-                class="w-10 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors"
-                [title]="node.name" (click)="onCollapsedNodeClick(node)">
-                <lucide-icon [img]="getNodeIcon(node)" size="16" [style.color]="node.color || 'currentColor'"
-                    class="text-muted-foreground">
-                </lucide-icon>
-            </button>
+        <!-- Backdrop to close dropdown -->
+        <div *ngIf="folderDropdownOpen()" class="fixed inset-0 z-40" (click)="closeFolderDropdown()">
         </div>
-    </div>
 
-    <!-- Sidebar Footer -->
-    <div class="h-8 flex items-center px-3 border-t border-sidebar-border shrink-0"
-        [class.justify-center]="sidebarService.isCollapsed()" [class.px-1]="sidebarService.isCollapsed()">
+        <!-- Panel Content -->
+        <div class="flex-1 overflow-hidden">
+            <!-- File Tree -->
+            <app-file-tree *ngIf="viewMode() === 'files'" [tree]="treeData()"></app-file-tree>
 
-        <!-- Item count (only when open) -->
-        <span *ngIf="sidebarService.isOpen()" class="text-xs text-muted-foreground flex-1">
+            <!-- Search Panel -->
+            <app-search-panel *ngIf="viewMode() === 'search'"></app-search-panel>
+        </div>
+
+        <!-- Panel Footer -->
+        <div class="h-8 flex items-center px-3 border-t border-sidebar-border shrink-0 text-xs text-muted-foreground">
             {{ treeData().length }} items
-        </span>
-
-        <!-- Collapse/Expand Toggle -->
-        <button class="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            [title]="sidebarService.isOpen() ? 'Collapse sidebar' : 'Expand sidebar'"
-            (click)="sidebarService.toggleCollapse()">
-            <lucide-icon [img]="sidebarService.isOpen() ? PanelLeftClose : PanelLeft" size="14">
-            </lucide-icon>
-        </button>
-    </div>
-</aside>
+        </div>
+    </aside>
+</div>

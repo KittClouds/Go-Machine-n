@@ -1,16 +1,49 @@
-import { Injectable, signal, Renderer2, RendererFactory2, Inject, DOCUMENT } from '@angular/core';
+// src/app/lib/services/theme.service.ts
+// Theme service with localStorage persistence
+
+import { Injectable, signal, Renderer2, RendererFactory2, Inject, PLATFORM_ID } from '@angular/core';
+import { DOCUMENT, isPlatformBrowser } from '@angular/common';
+
+const THEME_STORAGE_KEY = 'kittclouds-theme';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
     private renderer: Renderer2;
-    readonly isDark = signal<boolean>(false);
+    private isBrowser: boolean;
+    readonly isDark = signal<boolean>(true); // Default to dark
 
     constructor(
         rendererFactory: RendererFactory2,
-        @Inject(DOCUMENT) private document: Document
+        @Inject(DOCUMENT) private document: Document,
+        @Inject(PLATFORM_ID) platformId: Object
     ) {
         this.renderer = rendererFactory.createRenderer(null, null);
-        // Init from local storage or check system preference could go here
+        this.isBrowser = isPlatformBrowser(platformId);
+        this.initializeTheme();
+    }
+
+    /**
+     * Initialize theme from localStorage or system preference.
+     * Runs on app startup.
+     */
+    private initializeTheme(): void {
+        if (!this.isBrowser) return;
+
+        let prefersDark = true; // Default to dark
+
+        // Check localStorage first
+        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        if (stored !== null) {
+            prefersDark = stored === 'dark';
+            console.log(`[ThemeService] Restored theme from storage: ${stored}`);
+        } else {
+            // Fall back to system preference
+            prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            console.log(`[ThemeService] Using system preference: ${prefersDark ? 'dark' : 'light'}`);
+        }
+
+        // Apply theme immediately (no animation on init)
+        this.updateTheme(prefersDark);
     }
 
     toggleTheme(event?: MouseEvent) {
@@ -20,6 +53,7 @@ export class ThemeService {
         // Fallback for browsers without View Transitions
         if (!(this.document as any).startViewTransition) {
             this.updateTheme(nextState);
+            this.persistTheme(nextState);
             return;
         }
 
@@ -32,6 +66,7 @@ export class ThemeService {
 
         const transition = (this.document as any).startViewTransition(() => {
             this.updateTheme(nextState);
+            this.persistTheme(nextState);
         });
 
         transition.ready.then(() => {
@@ -56,9 +91,9 @@ export class ThemeService {
 
     private updateTheme(dark: boolean) {
         this.isDark.set(dark);
-        const target = this.document.body; // Target body since index.html uses body.light
+        const target = this.document.body;
 
-        console.log('[ThemeService] Updating theme. Dark:', dark);
+        console.log('[ThemeService] Applying theme. Dark:', dark);
 
         if (dark) {
             this.renderer.addClass(target, 'dark');
@@ -67,5 +102,11 @@ export class ThemeService {
             this.renderer.addClass(target, 'light');
             this.renderer.removeClass(target, 'dark');
         }
+    }
+
+    private persistTheme(dark: boolean): void {
+        if (!this.isBrowser) return;
+        localStorage.setItem(THEME_STORAGE_KEY, dark ? 'dark' : 'light');
+        console.log(`[ThemeService] Persisted theme: ${dark ? 'dark' : 'light'}`);
     }
 }

@@ -2,14 +2,16 @@
 // Sidebar with file tree and action buttons - WIRED to Dexie
 
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { LucideAngularModule, Plus, FolderPlus, BookOpen, Users, MapPin, Package, Lightbulb, Calendar, Clock, GitBranch, Layers, BookMarked, Film, Zap, Shield, User, Folder, PanelLeft, PanelLeftClose, FileText } from 'lucide-angular';
+import { LucideAngularModule, Plus, FolderPlus, BookOpen, Users, MapPin, Package, Lightbulb, Calendar, Clock, GitBranch, Layers, BookMarked, Film, Zap, Shield, User, Folder, PanelLeft, PanelLeftClose, FileText, Search } from 'lucide-angular';
 import { Subscription } from 'rxjs';
 import { SidebarService } from '../../lib/services/sidebar.service';
 import { FolderService } from '../../lib/services/folder.service';
 import { NotesService } from '../../lib/dexie/notes.service';
 import { NoteEditorStore } from '../../lib/store/note-editor.store';
 import { FileTreeComponent } from './file-tree/file-tree.component';
+import { SearchPanelComponent } from '../search-panel/search-panel.component';
 import type { TreeNode } from '../../lib/arborist/types';
 import type { Folder as DexieFolder, Note, FolderSchema } from '../../lib/dexie/db';
 
@@ -38,7 +40,7 @@ const ENTITY_FOLDER_OPTIONS: EntityFolderOption[] = [
 @Component({
     selector: 'app-sidebar',
     standalone: true,
-    imports: [CommonModule, FileTreeComponent, LucideAngularModule],
+    imports: [CommonModule, FileTreeComponent, LucideAngularModule, SearchPanelComponent],
     templateUrl: './sidebar.component.html',
     styleUrls: ['./sidebar.component.css']
 })
@@ -47,10 +49,14 @@ export class SidebarComponent implements OnInit, OnDestroy {
     private folderService = inject(FolderService);
     private notesService = inject(NotesService);
     private noteEditorStore = inject(NoteEditorStore);
+    private router = inject(Router);
 
     // Subscriptions
     private foldersSubscription?: Subscription;
     private notesSubscription?: Subscription;
+
+    // View Mode State
+    viewMode = signal<'files' | 'search'>('files');
 
     // Icons for template
     readonly Plus = Plus;
@@ -60,6 +66,8 @@ export class SidebarComponent implements OnInit, OnDestroy {
     readonly PanelLeft = PanelLeft;
     readonly PanelLeftClose = PanelLeftClose;
     readonly FileText = FileText;
+    readonly Calendar = Calendar;
+    readonly Search = Search;
 
     // Entity folder options for dropdown
     readonly entityFolderOptions = ENTITY_FOLDER_OPTIONS;
@@ -237,6 +245,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
         return this.FileText;
     }
 
+
     onCollapsedNodeClick(node: TreeNode): void {
         if (node.type === 'note') {
             // Open note in editor
@@ -245,5 +254,23 @@ export class SidebarComponent implements OnInit, OnDestroy {
             // Expand sidebar to show folder contents
             this.sidebarService.open();
         }
+    }
+
+    navigateToCalendar() {
+        this.router.navigate(['/calendar']);
+    }
+
+    toggleSearch() {
+        if (this.viewMode() === 'files') {
+            this.viewMode.set('search');
+            this.sidebarService.open();
+        } else {
+            this.viewMode.set('files');
+        }
+    }
+
+    setViewMode(mode: 'files' | 'search') {
+        this.viewMode.set(mode);
+        this.sidebarService.open();
     }
 }

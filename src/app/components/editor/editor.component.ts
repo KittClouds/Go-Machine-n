@@ -130,8 +130,18 @@ export class EditorComponent implements AfterViewInit, OnDestroy {
 
                     // Also broadcast for other listeners (e.g., hub panels)
                     this.editorService.updateContent({ json, markdown });
+
+                    // Save editor position on content change
+                    this.saveEditorPosition();
                 }
             });
+        });
+
+        // ─────────────────────────────────────────────────────────────
+        // Save position before page unload (refresh/close)
+        // ─────────────────────────────────────────────────────────────
+        window.addEventListener('beforeunload', () => {
+            this.saveEditorPosition();
         });
 
         console.log('[EditorComponent] Initialized - waiting for note selection');
@@ -166,6 +176,9 @@ export class EditorComponent implements AfterViewInit, OnDestroy {
                 const newDoc = state.schema.nodeFromJSON(content);
                 const tr = state.tr.replaceWith(0, state.doc.content.size, newDoc.content);
                 editorView.dispatch(tr);
+
+                // Restore scroll and cursor position after content loads
+                this.restoreEditorPosition(editorView);
             }
 
             // Update highlighter API with current note context
@@ -179,6 +192,58 @@ export class EditorComponent implements AfterViewInit, OnDestroy {
             setTimeout(() => {
                 this.isLoadingContent = false;
             }, 100);
+        }
+    }
+
+    /**
+     * Restore editor scroll and cursor position from storage
+     */
+    private restoreEditorPosition(editorView: any): void {
+        setTimeout(() => {
+            const pendingPosition = this.noteEditorStore.getPendingPosition();
+            if (!pendingPosition) return;
+
+            try {
+                // Restore scroll position
+                const scrollContainer = this.editorContainer?.nativeElement?.querySelector('.ProseMirror') as HTMLElement;
+                if (scrollContainer) {
+                    scrollContainer.scrollTop = pendingPosition.scrollTop;
+                }
+
+                // Restore cursor position
+                const docSize = editorView.state.doc.content.size;
+                const from = Math.min(pendingPosition.cursorFrom, docSize);
+                const to = Math.min(pendingPosition.cursorTo, docSize);
+
+                const tr = editorView.state.tr.setSelection(
+                    editorView.state.selection.constructor.create(editorView.state.doc, from, to)
+                );
+                editorView.dispatch(tr);
+                editorView.focus();
+
+                console.log(`[EditorComponent] Restored position: scroll=${pendingPosition.scrollTop}, cursor=${from}-${to}`);
+            } catch (e) {
+                console.warn('[EditorComponent] Failed to restore position:', e);
+            }
+        }, 50);
+    }
+
+    /**
+     * Save current editor position (scroll and cursor)
+     */
+    private saveEditorPosition(): void {
+        if (!this.crepe || !this.currentNoteId) return;
+
+        try {
+            const editorView = this.crepe.editor.ctx.get(editorViewCtx);
+            const scrollContainer = this.editorContainer?.nativeElement?.querySelector('.ProseMirror') as HTMLElement;
+
+            const scrollTop = scrollContainer?.scrollTop ?? 0;
+            const { from, to } = editorView.state.selection;
+
+            this.noteEditorStore.saveEditorPosition(scrollTop, from, to);
+        } catch (e) {
+            // Silently fail - position saving is best-effort
         }
     }
 

@@ -2,3 +2,19 @@
     display: contents;
     /* Allow fixed positioning to work relative to viewport */
 }
+
+/* 
+ * CRITICAL: Prevent flash on page load
+ * The hub starts with translate-y-full (off-screen) by default.
+ * This ensures no visual flash before Angular hydrates the state.
+ * The translate-y-full class is applied immediately via CSS before JS runs.
+ */
+:host>div:not([data-hub-ready]) {
+    transform: translateY(100%) !important;
+    transition: none !important;
+}
+
+/* Re-enable transitions after Angular has hydrated */
+:host>div[data-hub-ready] {
+    /* Transitions are handled by Tailwind classes */
+}
