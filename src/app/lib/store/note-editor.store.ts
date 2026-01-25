@@ -4,7 +4,7 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import { Observable, Subject, from, of, switchMap, debounceTime, distinctUntilChanged } from 'rxjs';
-import { toObservable } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { liveQuery, Observable as DexieObservable } from 'dexie';
 import { db, Note } from '../dexie/db';
 import * as ops from '../dexie/operations';
@@ -46,6 +46,9 @@ export class NoteEditorStore {
             return from(liveQuery(() => db.notes.get(id)) as DexieObservable<Note | undefined>);
         })
     );
+
+    /** Signal-based accessor for the current note (for signal consumers like AnalyticsPanel) */
+    readonly currentNote = toSignal(this.activeNote$, { initialValue: undefined });
 
     // ─────────────────────────────────────────────────────────────
     // Constructor: Setup debounced save pipeline

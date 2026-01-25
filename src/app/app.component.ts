@@ -26,7 +26,9 @@ export class AppComponent implements OnInit {
       .catch(err => console.error('[AppComponent] Schema seeding failed:', err));
 
     console.log('[AppComponent] Initializing smartGraphRegistry...');
-    smartGraphRegistry.init().catch(err => console.error('[AppComponent] Registry init failed:', err));
+    smartGraphRegistry.init()
+      .then(() => console.log('[AppComponent] SmartGraphRegistry initialized'))
+      .catch(err => console.error('[AppComponent] SmartGraphRegistry init failed:', err));
   }
 }
 

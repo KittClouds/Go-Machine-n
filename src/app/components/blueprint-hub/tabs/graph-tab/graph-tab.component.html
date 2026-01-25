@@ -1,43 +1,115 @@
 <div class="flex h-full w-full bg-background text-foreground">
     <!-- Left Sidebar: Entity List -->
-    <div class="w-1/4 min-w-[250px] border-r border-border flex flex-col bg-muted/10">
-        <div class="p-3 border-b border-border">
-            <h3 class="font-semibold text-sm">Entities ({{ entities.length }})</h3>
+    <div class="w-[280px] min-w-[240px] border-r border-border flex flex-col bg-card/50">
+        <!-- Scope Selector -->
+        <div class="p-2 border-b border-border/50">
+            <button
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors text-sm">
+                <lucide-icon [img]="GlobeIcon" class="w-4 h-4 text-muted-foreground"></lucide-icon>
+                <span class="text-foreground font-medium">Global</span>
+                <lucide-icon [img]="ChevronDownIcon" class="w-3 h-3 text-muted-foreground ml-auto"></lucide-icon>
+            </button>
         </div>
 
-        <div class="flex-1 overflow-y-auto h-full">
-            <div class="flex flex-col">
-                <div *ngFor="let entity of entities"
-                    class="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent/50 transition-colors border-b border-border/50 h-[50px] w-full"
-                    [class.bg-accent]="selectedEntity?.id === entity.id" (click)="selectEntity(entity)">
-                    <!-- Colored Dot -->
-                    <div class="w-3 h-3 rounded-full shrink-0" [style.backgroundColor]="getKindColor(entity.kind)">
-                    </div>
+        <!-- Header with Actions -->
+        <div class="p-2 border-b border-border/50 flex items-center gap-1">
+            <button
+                class="flex-1 flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                (click)="openCreator()">
+                <lucide-icon [img]="PlusIcon" class="w-3.5 h-3.5"></lucide-icon>
+                Add Entity
+            </button>
+            <button
+                class="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                pTooltip="Flush Registry" tooltipPosition="bottom" (click)="flushRegistry()">
+                <lucide-icon [img]="Trash2Icon" class="w-3.5 h-3.5"></lucide-icon>
+            </button>
+        </div>
 
-                    <div class="flex flex-col overflow-hidden">
-                        <span class="font-medium text-sm truncate">{{ entity.label }}</span>
-                        <span class="text-xs text-muted-foreground truncate">{{ entity.kind }}</span>
-                    </div>
+        <!-- Entity Tree -->
+        <div class="flex-1 overflow-y-auto">
+            <div class="p-1 space-y-0.5">
+                @if (groupedEntities().length === 0) {
+                <div class="text-center text-xs text-muted-foreground py-8 px-4">
+                    <p>No entities registered.</p>
+                    <p class="mt-1 opacity-70">Click "Add Entity" to start.</p>
                 </div>
+                } @else {
+                @for (group of groupedEntities(); track group.kind) {
+                <!-- Kind Header -->
+                <button
+                    class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-accent/30 text-left transition-colors"
+                    (click)="toggleKind(group.kind)">
+                    <lucide-icon [img]="group.expanded ? ChevronDownIcon : ChevronRightIcon"
+                        class="w-3 h-3 text-muted-foreground shrink-0"></lucide-icon>
+                    <lucide-icon [img]="getIcon(group.kind)" class="w-3.5 h-3.5 shrink-0"
+                        [style.color]="getColor(group.kind)"></lucide-icon>
+                    <span class="text-[11px] font-semibold uppercase tracking-wide truncate"
+                        [style.color]="getColor(group.kind)">{{ group.kind }}</span>
+                    <span class="ml-auto text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded-full">
+                        {{ group.entities.length }}
+                    </span>
+                </button>
+
+                <!-- Entity Items -->
+                @if (group.expanded) {
+                <div class="ml-3 space-y-px">
+                    @for (entity of group.entities; track entity.id) {
+                    <div class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-xs transition-colors cursor-pointer"
+                        [class.bg-primary/10]="selectedEntity()?.id === entity.id"
+                        [class.hover:bg-accent/30]="selectedEntity()?.id !== entity.id" (click)="selectEntity(entity)">
+                        <span class="truncate flex-1 font-medium" [style.color]="getColor(entity.kind)">{{ entity.label
+                            }}</span>
+                        <button
+                            class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 transition-all"
+                            (click)="deleteEntity(entity, $event)" pTooltip="Delete" tooltipPosition="left">
+                            <lucide-icon [img]="Trash2Icon" class="w-3 h-3 text-destructive"></lucide-icon>
+                        </button>
+                    </div>
+                    }
+                </div>
+                }
+                }
+                }
             </div>
         </div>
+
+        <!-- Footer -->
+        <div class="p-2 border-t border-border/50 text-center">
+            <span class="text-[10px] text-muted-foreground">{{ totalEntities() }} entities</span>
+        </div>
     </div>
 
-    <!-- Right Details: Draw Panel (Placeholder) -->
+    <!-- Right Details Panel -->
     <div class="flex-1 flex flex-col items-center justify-center p-6 bg-background relative overflow-hidden">
         <!-- Grid Background Effect -->
-        <div class="absolute inset-0 z-0 opacity-[0.03]"
-            style="background-image: radial-gradient(#000 1px, transparent 1px); background-size: 20px 20px;">
+        <div class="absolute inset-0 z-0 opacity-[0.02]"
+            style="background-image: radial-gradient(hsl(var(--foreground)) 1px, transparent 1px); background-size: 24px 24px;">
         </div>
 
-        <div *ngIf="!selectedEntity" class="text-center z-10 opacity-60">
-            <i class="pi pi-sitemap text-4xl mb-4 text-muted-foreground"></i>
-            <h3 class="text-xl font-medium">Select an entity from the list</h3>
-            <p class="text-sm text-muted-foreground mt-2">to view and manage its connections</p>
+        @if (!selectedEntity()) {
+        <div class="text-center z-10">
+            <div
+                class="w-16 h-16 rounded-2xl bg-muted/30 flex items-center justify-center mx-auto mb-4 border border-border/50">
+                <svg class="w-8 h-8 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.5">
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="5" cy="19" r="2" />
+                    <circle cx="19" cy="19" r="2" />
+                    <path d="M12 7v4M7 17l3.5-4M17 17l-3.5-4" />
+                </svg>
+            </div>
+            <h3 class="text-base font-medium text-foreground">Select an entity from the list</h3>
+            <p class="text-sm text-muted-foreground mt-1">to view and manage its connections</p>
         </div>
-
-        <div *ngIf="selectedEntity" class="z-10 w-full h-full p-4 overflow-y-auto">
-            <app-graph-detail [entity]="selectedEntity"></app-graph-detail>
+        } @else {
+        <div class="z-10 w-full h-full overflow-y-auto">
+            <app-graph-detail [entity]="selectedEntity()!"></app-graph-detail>
         </div>
+        }
     </div>
 </div>
+
+<!-- Entity Creator Dialog -->
+<app-entity-creator-dialog [(visible)]="isCreatorOpen" [editEntity]="editingEntity()"
+    (save)="onSaveEntity($event)"></app-entity-creator-dialog>

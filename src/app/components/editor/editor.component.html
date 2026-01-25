@@ -1,6 +1,8 @@
-<div class="h-full w-full overflow-hidden relative bg-editor text-editor-foreground">
+<div class="h-full w-full flex flex-col relative bg-editor text-editor-foreground">
     <!-- Editor (always rendered, hidden when no note) -->
-    <div #editorContainer class="crepe-host h-full w-full" [class.hidden]="!noteEditorStore.isNoteOpen()">
+    <div class="flex-1 overflow-auto scrollbar-thin" [class.hidden]="!noteEditorStore.isNoteOpen()">
+        <div #editorContainer class="crepe-host min-h-full w-full">
+        </div>
     </div>
 
     <!-- No Note Selected Placeholder (shown when no note open) -->

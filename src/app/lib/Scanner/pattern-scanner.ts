@@ -77,7 +77,7 @@ export async function scanForPatterns(text: string, noteId?: string): Promise<De
 
     // Batch register all collected entities (single hydration)
     if (entitiesToRegister.length > 0) {
-        await smartGraphRegistry.registerEntityBatch(
+        smartGraphRegistry.registerEntityBatch(
             entitiesToRegister.map(e => ({
                 label: e.label,
                 kind: e.kind,

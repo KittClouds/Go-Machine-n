@@ -21,8 +21,8 @@ import type { KittCoreService, EntitySpan, ExtractedRelation } from '../kittcore
 export interface ScanCoordinatorConfig {
     kittCore: Pick<KittCoreService, 'scan' | 'extractRelations'>;
     graphRegistry: {
-        upsertRelationship: (rel: any) => Promise<void>;
-        registerEntity: (label: string, kind: any, noteId: string, options?: any) => Promise<any>;
+        upsertRelationship: (rel: any) => void;
+        registerEntity: (label: string, kind: any, noteId: string, options?: any) => any;
     };
     onNewRelations?: (relations: ExtractedRelation[]) => void;
     idleTimeoutMs?: number;
@@ -101,7 +101,7 @@ export class ScanCoordinator {
                 span.kind,
                 noteId,
                 { source: 'extraction' }
-            ).catch(err => console.error('[ScanCoordinator] Entity reg failed:', err));
+            );
         } else if (span.type === 'relationship' || span.type === 'predicate') {
             // Handle Relationship Spans from Regex Scanner
             if (span.sourceEntity && span.targetEntity && span.label) {
@@ -110,7 +110,7 @@ export class ScanCoordinator {
                     target: span.targetEntity,
                     type: span.label, // or span.verb
                     sourceNote: noteId
-                }).catch(err => console.error('[ScanCoordinator] Rel upsert failed:', err));
+                });
             }
         }
 
@@ -209,7 +209,7 @@ export class ScanCoordinator {
 
                 // Upsert to graph
                 for (const rel of relations) {
-                    await this.config.graphRegistry.upsertRelationship(rel);
+                    this.config.graphRegistry.upsertRelationship(rel);
                 }
 
                 // Emit callback

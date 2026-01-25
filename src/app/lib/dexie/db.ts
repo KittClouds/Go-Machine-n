@@ -146,6 +146,46 @@ export interface EntityCard {
     updatedAt: number;
 }
 
+// Global per-kind card schema (all CHARACTERs share this layout)
+export interface FactSheetCardSchema {
+    id: string;                      // e.g., "CHARACTER::identity"
+    entityKind: string;              // CHARACTER, LOCATION, etc.
+    cardId: string;                  // "identity", "progression", etc.
+    title: string;
+    icon: string;                    // Lucide icon name
+    gradient: string;                // Tailwind gradient classes
+    displayOrder: number;
+    isSystem: boolean;               // System cards can't be deleted
+    createdAt: number;
+    updatedAt: number;
+}
+
+// Global per-kind field schema (fields within cards)
+export interface FactSheetFieldSchema {
+    id: string;                      // e.g., "CHARACTER::identity::fullName"
+    entityKind: string;              // CHARACTER, LOCATION, etc.
+    cardId: string;                  // "identity", "progression", etc.
+    fieldName: string;               // "fullName", "age", etc.
+    fieldType: string;               // "text", "number", "progress", "stat-grid"
+    label: string;
+    placeholder?: string;
+    multiline?: boolean;
+    min?: number;
+    max?: number;
+    step?: number;
+    defaultValue?: string;           // JSON-encoded default
+    options?: string;                // JSON-encoded for dropdowns
+    color?: string;                  // For progress bars
+    currentField?: string;           // For progress: linked field name
+    maxField?: string;               // For progress: linked field name
+    stats?: string;                  // JSON-encoded for stat-grid
+    unit?: string;                   // e.g., "lbs"
+    displayOrder: number;
+    isSystem: boolean;               // System fields can't be deleted
+    createdAt: number;
+    updatedAt: number;
+}
+
 // =============================================================================
 // FOLDER SCHEMA INTERFACES (NEW)
 // =============================================================================
@@ -269,9 +309,13 @@ export class CrepeDatabase extends Dexie {
     scannerCache!: Table<ScannerCache>;
     modelCache!: Table<ModelCache>;
 
-    // Fact sheets
+    // Fact sheets - per-entity data
     entityMetadata!: Table<EntityMetadata>;
     entityCards!: Table<EntityCard>;
+
+    // Fact sheet schemas - global per-kind definitions
+    factSheetCardSchemas!: Table<FactSheetCardSchema>;
+    factSheetFieldSchemas!: Table<FactSheetFieldSchema>;
 
     // Folder schemas (NEW)
     folderSchemas!: Table<FolderSchema>;
@@ -315,9 +359,13 @@ export class CrepeDatabase extends Dexie {
             scannerCache: 'id',
             modelCache: 'modelId',
 
-            // Fact sheets
+            // Fact sheets - per-entity data
             entityMetadata: '[entityId+key], entityId',
             entityCards: '[entityId+cardId], entityId, displayOrder',
+
+            // Fact sheet schemas - global per-kind (NEW)
+            factSheetCardSchemas: 'id, entityKind, displayOrder, isSystem',
+            factSheetFieldSchemas: 'id, entityKind, cardId, displayOrder, isSystem',
 
             // Folder schemas (NEW)
             folderSchemas: 'id, entityKind, isSystem',

@@ -41,6 +41,10 @@
     "@ng-icons/lucide": ">=32.0.0 <34.0.0",
     "@ngrx/operators": "^21.0.1",
     "@ngrx/signals": "^21.0.1",
+    "@omnedia/ngx-gradient-text": "^4.0.1",
+    "@omnedia/ngx-number-ticker": "^4.0.1",
+    "@omnedia/ngx-swapy": "^4.0.1",
+    "@omnedia/ngx-tracing-beam": "^4.0.1",
     "@primeng/themes": "^21.0.4",
     "@spartan-ng/brain": "^0.0.1-alpha.609",
     "@spartan-ng/ui-core": "^0.0.1-alpha.380",
@@ -52,6 +56,7 @@
     "primeicons": "^7.0.0",
     "primeng": "^21.0.4",
     "rxjs": "~7.8.0",
+    "swapy": "^1.0.5",
     "tailwind-merge": "^3.4.0",
     "tslib": "^2.3.0"
   },

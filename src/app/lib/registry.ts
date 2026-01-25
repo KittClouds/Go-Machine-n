@@ -1,9 +1,10 @@
 // src/lib/registry.ts
-// Entity Registry - In-Memory / Local Storage Implementation
-// Derived from RustSmartGraphRegistry but without WASM dependency
+// Entity Registry - Write-through Cache over Dexie (IndexedDB)
+// Synchronous reads from memory, async writes to Dexie for persistence.
+// Hydrates from Dexie on init(), writes through on every mutation.
 
 import type { EntityKind } from './Scanner/types';
-import { kittCore } from './kittcore';
+import { db, Entity, Edge as DexieEdge } from './dexie';
 
 // =============================================================================
 // Types
@@ -41,37 +42,103 @@ export interface Edge {
 }
 
 // =============================================================================
-// CentralRegistry - In-Memory Implementation
+// CentralRegistry - Write-Through Cache over Dexie
 // =============================================================================
 
 export class CentralRegistry {
     private initialized = false;
     private entityCache = new Map<string, RegisteredEntity>();
     private labelIndex = new Map<string, string>(); // normalized label -> entity ID
+    private edgeCache = new Map<string, Edge>();
+
+    // Reactivity
+    private listeners = new Set<() => void>();
+    private snapshot: RegisteredEntity[] = []; // Stable reference for signals/hooks
     private suppressEvents = false;
 
     // =========================================================================
-    // Initialization
+    // Initialization - Hydrate from Dexie
     // =========================================================================
 
     async init(): Promise<void> {
         if (this.initialized) return;
 
-        // In a real app, this would load from LocalStorage or IndexedDB
-        this.initialized = true;
-        console.log(`[CentralRegistry] Initialized. Loaded ${this.entityCache.size} entities.`);
+        try {
+            // Hydrate entities from Dexie
+            const dexieEntities = await db.entities.toArray();
+            for (const e of dexieEntities) {
+                const registered = this.dexieToRegisteredEntity(e);
+                this.entityCache.set(e.id, registered);
+                this.labelIndex.set(e.label.toLowerCase(), e.id);
+            }
+
+            // Hydrate edges from Dexie
+            const dexieEdges = await db.edges.toArray();
+            for (const edge of dexieEdges) {
+                this.edgeCache.set(edge.id, {
+                    id: edge.id,
+                    sourceId: edge.sourceId,
+                    targetId: edge.targetId,
+                    type: edge.relType,
+                    confidence: edge.confidence,
+                });
+            }
+
+            this.initialized = true;
+            this.snapshot = Array.from(this.entityCache.values());
+            console.log(`[CentralRegistry] Initialized from Dexie: ${this.entityCache.size} entities, ${this.edgeCache.size} edges`);
+        } catch (err) {
+            console.error('[CentralRegistry] Failed to hydrate from Dexie:', err);
+            this.initialized = true; // Still mark as initialized to prevent loops
+            this.snapshot = [];
+        }
     }
 
     isInitialized(): boolean {
         return this.initialized;
     }
 
-    async refresh(): Promise<void> {
-        // No-op for in-memory
+    /**
+     * Convert Dexie Entity to RegisteredEntity (in-memory format)
+     */
+    private dexieToRegisteredEntity(e: Entity): RegisteredEntity {
+        return {
+            id: e.id,
+            label: e.label,
+            kind: e.kind as EntityKind,
+            aliases: e.aliases || [],
+            subtype: e.subtype,
+            firstNote: e.firstNote,
+            mentionsByNote: new Map(), // Not stored in Dexie currently
+            totalMentions: e.totalMentions || 0,
+            lastSeenDate: new Date(e.updatedAt),
+            createdAt: new Date(e.createdAt),
+            createdBy: e.createdBy || 'user',
+            attributes: {},
+            registeredAt: e.createdAt,
+        };
+    }
+
+    /**
+     * Convert RegisteredEntity to Dexie Entity format
+     */
+    private registeredToDexieEntity(e: RegisteredEntity): Entity {
+        return {
+            id: e.id,
+            label: e.label,
+            kind: e.kind,
+            subtype: e.subtype,
+            aliases: e.aliases,
+            firstNote: e.firstNote,
+            totalMentions: e.totalMentions,
+            createdAt: e.createdAt.getTime(),
+            updatedAt: e.lastSeenDate.getTime(),
+            createdBy: e.createdBy,
+        };
     }
 
     // =========================================================================
-    // ENTITY OPERATIONS
+    // SYNC GETTERS
     // =========================================================================
 
     isRegisteredEntity(label: string): boolean {
@@ -87,15 +154,33 @@ export class CentralRegistry {
         return id ? this.entityCache.get(id) || null : null;
     }
 
+    /**
+     * Get stable snapshot of all entities.
+     * Efficient for Angular Signals / React Hooks.
+     */
     getAllEntities(): RegisteredEntity[] {
-        return Array.from(this.entityCache.values());
+        return this.snapshot;
     }
 
     getEntitiesByKind(kind: EntityKind): RegisteredEntity[] {
-        return this.getAllEntities().filter(e => e.kind === kind);
+        return this.snapshot.filter(e => e.kind === kind);
     }
 
-    async registerEntity(
+    getEdgesForEntity(entityId: string): Edge[] {
+        return Array.from(this.edgeCache.values()).filter(e =>
+            e.sourceId === entityId || e.targetId === entityId
+        );
+    }
+
+    // =========================================================================
+    // SYNC MUTATIONS
+    // =========================================================================
+
+    /**
+     * Register an entity synchronously.
+     * Returns result immediately. No await needed.
+     */
+    registerEntity(
         label: string,
         kind: EntityKind,
         noteId: string,
@@ -105,14 +190,12 @@ export class CentralRegistry {
             attributes?: Record<string, any>;
             source?: 'user' | 'extraction' | 'auto';
         }
-    ): Promise<EntityRegistrationResult> {
+    ): EntityRegistrationResult {
         const existing = this.findEntityByLabel(label);
         const isNew = !existing;
 
-        if (this.suppressEvents) {
-            // Batch mode log (less verbose)
-        } else {
-            console.log(`[CentralRegistry] Registering: ${label} (${kind}) from ${options?.source || 'user'}. IsNew? ${isNew}`);
+        if (!this.suppressEvents) {
+            // console.log(`[CentralRegistry] Registering: ${label} (${kind}) from ${options?.source || 'user'}. IsNew? ${isNew}`);
         }
 
         const id = existing?.id || this.generateEntityId(label, kind);
@@ -123,19 +206,18 @@ export class CentralRegistry {
             subtype: options?.subtype || existing?.subtype,
             firstNote: existing?.firstNote || noteId,
             mentionsByNote: existing ? existing.mentionsByNote : new Map<string, number>([[noteId, 1]]),
-            totalMentions: (existing?.totalMentions || 0) + (isNew ? 1 : 0),
+            totalMentions: (existing?.totalMentions || 0) + (isNew ? (options?.source === 'auto' ? 0 : 1) : 0), // Don't double count auto-seeds
             lastSeenDate: now,
             createdAt: existing?.createdAt?.getTime() || now,
             createdBy: existing?.createdBy || options?.source || 'user',
             attributes: { ...existing?.attributes, ...options?.attributes },
         };
 
-        // In-memory update
         const entity: RegisteredEntity = {
             id,
             label,
-            aliases: props.aliases,
             kind,
+            aliases: props.aliases,
             subtype: props.subtype,
             firstNote: props.firstNote,
             mentionsByNote: props.mentionsByNote,
@@ -150,15 +232,25 @@ export class CentralRegistry {
         this.entityCache.set(id, entity);
         this.labelIndex.set(label.toLowerCase(), id);
 
-        // Dispatch event
-        if (!this.suppressEvents && typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('entities-changed'));
-        }
+        // Write-through to Dexie (fire-and-forget)
+        this.persistEntityToDexie(entity);
+
+        this.notify();
 
         return { entity, isNew, wasMerged: false };
     }
 
-    async registerEntityBatch(
+    /**
+     * Persist entity to Dexie (fire-and-forget, non-blocking)
+     */
+    private persistEntityToDexie(entity: RegisteredEntity): void {
+        const dexieEntity = this.registeredToDexieEntity(entity);
+        db.entities.put(dexieEntity).catch(err => {
+            console.warn('[CentralRegistry] Failed to persist entity to Dexie:', entity.id, err);
+        });
+    }
+
+    registerEntityBatch(
         entities: Array<{
             label: string;
             kind: EntityKind;
@@ -170,43 +262,69 @@ export class CentralRegistry {
                 source?: 'user' | 'extraction' | 'auto';
             };
         }>
-    ): Promise<EntityRegistrationResult[]> {
+    ): EntityRegistrationResult[] {
         const results: EntityRegistrationResult[] = [];
+        this.suppressEvents = true; // Suppress intermediate notifies
 
-        this.suppressEvents = true;
         try {
             for (const { label, kind, noteId, options } of entities) {
-                const result = await this.registerEntity(label, kind, noteId, options);
-                results.push(result);
+                results.push(this.registerEntity(label, kind, noteId, options));
             }
         } finally {
             this.suppressEvents = false;
         }
 
-        if (results.length > 0 && typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('entities-changed'));
-        }
-
+        this.notify();
         return results;
     }
 
-    async deleteEntity(id: string): Promise<boolean> {
+    deleteEntity(id: string): boolean {
         const entity = this.entityCache.get(id);
         if (entity) {
             this.labelIndex.delete(entity.label.toLowerCase());
             this.entityCache.delete(id);
+
+            // Write-through to Dexie (fire-and-forget)
+            db.entities.delete(id).catch(err => {
+                console.warn('[CentralRegistry] Failed to delete entity from Dexie:', id, err);
+            });
+
+            this.notify();
             return true;
         }
         return false;
     }
 
-    async updateEntity(id: string, updates: {
+    /**
+     * Clear all entities and edges from the registry.
+     * Returns the number of entities that were cleared.
+     */
+    clearAll(): number {
+        const count = this.entityCache.size;
+        this.entityCache.clear();
+        this.labelIndex.clear();
+        this.edgeCache.clear();
+
+        // Write-through to Dexie (fire-and-forget)
+        Promise.all([
+            db.entities.clear(),
+            db.edges.clear(),
+            db.entityMetadata.clear(),
+        ]).catch(err => {
+            console.warn('[CentralRegistry] Failed to clear Dexie tables:', err);
+        });
+
+        this.notify();
+        return count;
+    }
+
+    updateEntity(id: string, updates: {
         label?: string;
         kind?: EntityKind;
         aliases?: string[];
         subtype?: string;
         attributes?: Record<string, any>;
-    }): Promise<RegisteredEntity | null> {
+    }): RegisteredEntity | null {
         const existing = this.entityCache.get(id);
         if (!existing) return null;
 
@@ -229,20 +347,19 @@ export class CentralRegistry {
         }
 
         this.entityCache.set(id, updated);
+
+        // Write-through to Dexie (fire-and-forget)
+        this.persistEntityToDexie(updated);
+
+        this.notify();
         return updated;
     }
 
     // =========================================================================
-    // EDGE OPERATIONS (Relationships) - Mocked for now
+    // RELATIONSHIPS (Edges)
     // =========================================================================
 
-    private edgeCache = new Map<string, Edge>();
-
-    // =========================================================================
-    // EDGE OPERATIONS (Relationships)
-    // =========================================================================
-
-    async createEdge(sourceId: string, targetId: string, type: string, options?: any): Promise<Edge> {
+    createEdge(sourceId: string, targetId: string, type: string, options?: any): Edge {
         const id = `${sourceId}-${type}-${targetId}`;
         const edge: Edge = {
             id,
@@ -255,37 +372,61 @@ export class CentralRegistry {
 
         this.edgeCache.set(id, edge);
 
-        if (!this.suppressEvents && typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('entities-changed'));
-        }
+        // Write-through to Dexie (fire-and-forget)
+        db.edges.put({
+            id,
+            sourceId,
+            targetId,
+            relType: type,
+            confidence: 1.0,
+            bidirectional: false,
+        }).catch(err => {
+            console.warn('[CentralRegistry] Failed to persist edge to Dexie:', id, err);
+        });
+
+        this.notify(); // Edges change the graph state
 
         return edge;
     }
 
-    async upsertRelationship(rel: any): Promise<void> {
-        // Find entity IDs first (assuming labels are passed)
+    upsertRelationship(rel: any): void {
         const sourceEntity = this.findEntityByLabel(rel.source);
         const targetEntity = this.findEntityByLabel(rel.target);
 
         if (sourceEntity && targetEntity) {
-            await this.createEdge(sourceEntity.id, targetEntity.id, rel.type, { sourceNote: rel.sourceNote });
-            console.log(`[CentralRegistry] Upserted relation: ${rel.source} -> ${rel.type} -> ${rel.target}`);
-        } else {
-            console.warn(`[CentralRegistry] Could not upsert relation, missing entities: ${rel.source} -> ${rel.target}`);
+            this.createEdge(sourceEntity.id, targetEntity.id, rel.type, { sourceNote: rel.sourceNote });
         }
     }
 
-    getEdgesForEntity(entityId: string): Edge[] {
-        return Array.from(this.edgeCache.values()).filter(e =>
-            e.sourceId === entityId || e.targetId === entityId
-        );
+    // =========================================================================
+    // REACTIVITY & SUBSCRIPTIONS
+    // =========================================================================
+
+    subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    private notify(): void {
+        if (this.suppressEvents) return;
+
+        // Update snapshot
+        this.snapshot = Array.from(this.entityCache.values());
+
+        // Notify internal listeners
+        this.listeners.forEach(fn => fn());
+
+        // Dispatch DOM event for legacy listeners
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('entities-changed'));
+        }
     }
 
     // =========================================================================
-    // Helpers
+    // HELPERS
     // =========================================================================
 
-    private generateEntityId(label: string, kind: EntityKind): string {
+    generateEntityId(label: string, kind: EntityKind): string {
         const normalized = label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
         return `${kind.toLowerCase()}_${normalized}`;
     }
