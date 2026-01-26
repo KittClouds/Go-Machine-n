@@ -189,7 +189,7 @@ func (c *Conductor) registerExplicitEntities(matches []syntax.SyntaxMatch) {
 				gender = resolver.GenderNeutral
 			}
 
-			c.resolver.Context.Register(resolver.EntityMetadata{
+			c.resolver.RegisterEntity(resolver.EntityMetadata{
 				ID:      m.Label,
 				Name:    m.Label,
 				Kind:    m.EntityKind,

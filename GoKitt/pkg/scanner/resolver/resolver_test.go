@@ -4,19 +4,19 @@ import "testing"
 
 func setupResolver() *Resolver {
 	r := New()
-	r.Context.Register(EntityMetadata{
+	r.RegisterEntity(EntityMetadata{
 		ID:      "e1",
 		Name:    "Gandalf",
 		Gender:  GenderMale,
 		Aliases: []string{"Mithrandir", "The Wizard"},
 	})
-	r.Context.Register(EntityMetadata{
+	r.RegisterEntity(EntityMetadata{
 		ID:      "e2",
 		Name:    "Galadriel",
 		Gender:  GenderFemale,
 		Aliases: []string{"Lady of Light"},
 	})
-	r.Context.Register(EntityMetadata{
+	r.RegisterEntity(EntityMetadata{
 		ID:      "e3",
 		Name:    "The Ring",
 		Gender:  GenderNeutral,
@@ -78,7 +78,7 @@ func TestRecencyUpdate(t *testing.T) {
 	r.ObserveMention("e1") // Gandalf again
 
 	// Register Frodo
-	r.Context.Register(EntityMetadata{ID: "e4", Name: "Frodo", Gender: GenderMale})
+	r.RegisterEntity(EntityMetadata{ID: "e4", Name: "Frodo", Gender: GenderMale})
 	r.ObserveMention("e4") // Frodo
 
 	// "He" -> Frodo

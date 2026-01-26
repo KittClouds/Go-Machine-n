@@ -4,6 +4,8 @@ package resolver
 
 import (
 	"strings"
+
+	"github.com/kittclouds/gokitt/pkg/resorank"
 )
 
 // Gender of an entity
@@ -106,13 +108,76 @@ func gendersCompatible(entityGender, pronounGender Gender) bool {
 // Resolver handles pronoun and alias resolution
 type Resolver struct {
 	Context *NarrativeContext
+	Scorer  *resorank.Scorer
 }
 
 // New creating a new Resolver
 func New() *Resolver {
+	cfg := resorank.DefaultConfig()
+	// Tune for alias matching
+	cfg.VectorAlpha = 0.5           // 50/50 mix
+	cfg.FieldWeights["name"] = 10.0 // Exact name match is high
+	cfg.FieldWeights["alias"] = 5.0 // Alias match is good
+	cfg.FieldWeights["kind"] = 1.0  // Weak signal
+	cfg.B = 0.5                     // Short text, lower length normalization penalty
+
 	return &Resolver{
 		Context: NewContext(),
+		Scorer:  resorank.NewScorer(cfg),
 	}
+}
+
+// RegisterEntity registers an entity with both the context and the fuzzy scorer
+func (r *Resolver) RegisterEntity(e EntityMetadata) {
+	r.Context.Register(e)
+
+	// Index into ResoRank
+	meta := resorank.DocumentMetadata{
+		TotalTokenCount: 1 + len(e.Aliases), // heuristic
+		FieldLengths: map[string]int{
+			"name":  len(strings.Split(e.Name, " ")),
+			"alias": len(e.Aliases), // treats aliases as one bag for length? approximation
+			"kind":  1,
+		},
+		// Embedding: ... (Future: pass embedding here)
+	}
+
+	tokens := make(map[string]resorank.TokenMetadata)
+
+	// Index Name
+	for _, word := range strings.Fields(strings.ToLower(e.Name)) {
+		tokens[word] = resorank.TokenMetadata{
+			CorpusDocFreq: 1,
+			FieldOccurrences: map[string]resorank.FieldOccurrence{
+				"name": {TF: 1, FieldLength: meta.FieldLengths["name"]},
+			},
+		}
+	}
+
+	// Index Aliases
+	for _, alias := range e.Aliases {
+		for _, word := range strings.Fields(strings.ToLower(alias)) {
+			// Merge if exists
+			if tm, ok := tokens[word]; ok {
+				if fo, ok := tm.FieldOccurrences["alias"]; ok {
+					fo.TF++
+					tm.FieldOccurrences["alias"] = fo
+				} else {
+					tm.FieldOccurrences["alias"] = resorank.FieldOccurrence{TF: 1, FieldLength: 10} // approx
+				}
+				tokens[word] = tm
+			} else {
+				tokens[word] = resorank.TokenMetadata{
+					CorpusDocFreq: 1,
+					FieldOccurrences: map[string]resorank.FieldOccurrence{
+						"alias": {TF: 1, FieldLength: 10},
+					},
+				}
+			}
+		}
+	}
+
+	r.Scorer.IndexDocument(e.ID, meta, tokens)
 }
 
 // Resolve attempts to resolve text (pronoun or alias) to an EntityID
@@ -122,7 +187,7 @@ func (r *Resolver) Resolve(text string) string {
 		return r.Context.FindMostRecent(gender)
 	}
 
-	// Check direct alias match
+	// 1. Direct Alias Match (Fastest)
 	lower := strings.ToLower(text)
 	for _, meta := range r.Context.registry {
 		if strings.ToLower(meta.Name) == lower {
@@ -132,6 +197,20 @@ func (r *Resolver) Resolve(text string) string {
 			if strings.ToLower(alias) == lower {
 				return meta.ID
 			}
+		}
+	}
+
+	// 2. Fuzzy/Hybrid Match (ResoRank)
+	// Split query
+	queryTokens := strings.Fields(lower)
+	// queryVector := ... (Future: pass vector from upstream)
+
+	results := r.Scorer.Search(queryTokens, nil, 1)
+	if len(results) > 0 {
+		// Threshold check?
+		// For now if scoring > 0.5 (arbitrary), take it
+		if results[0].Score > 1.0 { // BM25 scores can be high.
+			return results[0].DocID
 		}
 	}
 
