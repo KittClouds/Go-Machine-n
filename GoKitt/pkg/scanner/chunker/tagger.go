@@ -61,14 +61,14 @@ func (t *Tagger) Tag(words []string) []POS {
 
 		// Rule 3: "To" forces Verb (Infinitive marker)
 		// "want to [run]"
-		if i > 0 && strings.ToLower(words[i-1]) == "to" && currentTag.IsNominal() {
+		if i > 0 && isTo(words[i-1]) && currentTag.IsNominal() {
 			tags[i] = Verb
 			continue
 		}
 
 		// Rule 4: "Of" forces Noun
 		// "Word of [honor]"
-		if i > 0 && strings.ToLower(words[i-1]) == "of" && currentTag.IsVerbal() {
+		if i > 0 && isOf(words[i-1]) && currentTag.IsVerbal() {
 			tags[i] = Noun
 			continue
 		}
@@ -87,7 +87,7 @@ func (t *Tagger) Tag(words []string) []POS {
 }
 
 func (t *Tagger) lookupBaseline(word string) POS {
-	lower := strings.ToLower(word)
+	lower := fastLower(word)
 
 	// Check lexicon
 	if pos, ok := t.lexicon[lower]; ok {
@@ -99,7 +99,7 @@ func (t *Tagger) lookupBaseline(word string) POS {
 }
 
 func (t *Tagger) inferPOS(word string) POS {
-	lower := strings.ToLower(word)
+	lower := fastLower(word)
 
 	// Single punctuation
 	if len(word) == 1 {
@@ -134,6 +134,26 @@ func (t *Tagger) inferPOS(word string) POS {
 
 	// Default: noun
 	return Noun
+}
+
+// fastLower returns the string if it contains no uppercase characters,
+// otherwise returns strings.ToLower(s). Avoids allocation for common case.
+func fastLower(s string) string {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' {
+			return strings.ToLower(s)
+		}
+	}
+	return s
+}
+
+func isTo(s string) bool {
+	return len(s) == 2 && (s[0] == 't' || s[0] == 'T') && (s[1] == 'o' || s[1] == 'O')
+}
+
+func isOf(s string) bool {
+	return len(s) == 2 && (s[0] == 'o' || s[0] == 'O') && (s[1] == 'f' || s[1] == 'F')
 }
 
 func (t *Tagger) loadDefaultLexicon() {
