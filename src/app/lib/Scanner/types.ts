@@ -68,6 +68,20 @@ export interface DecorationSpan {
     candidateIds?: string[];
     /** Labels for ambiguous candidates */
     candidateLabels?: string[];
+    /** Robust anchoring for re-finding this span (Web Annotation model) */
+    selector?: TextQuoteSelector;
+}
+
+/**
+ * Web Annotation TextQuoteSelector for robust anchoring
+ */
+export interface TextQuoteSelector {
+    /** The exact text of the selection */
+    exact: string;
+    /** Text immediately preceding the selection (context) */
+    prefix: string;
+    /** Text immediately following the selection (context) */
+    suffix: string;
 }
 
 /**

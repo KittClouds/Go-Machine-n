@@ -142,9 +142,14 @@ func TestNormalizeRaw(t *testing.T) {
 		expected string
 	}{
 		{"Hello World", "hello world"},
-		{"Monkey D. Luffy", "monkey d luffy"},
+		// Period is now preserved as a joiner (for initials like "D." in names)
+		{"Monkey D. Luffy", "monkey d. luffy"},
 		{"don't stop", "don't stop"},
 		{"The  Shire's   beauty", "the shire's beauty"},
+		// Hyphens preserved
+		{"Jean-Luc Picard", "jean-luc picard"},
+		// En-dash normalized to hyphen
+		{"2020\u20132021", "2020-2021"},
 	}
 
 	for _, tc := range tests {

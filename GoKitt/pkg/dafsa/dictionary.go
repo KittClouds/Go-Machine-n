@@ -5,39 +5,142 @@ package dafsa
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/coregx/ahocorasick"
 )
 
 // ============================================================================
-// String Utilities (inline, no separate package)
+// UNIFIED CANONICALIZER - Used for BOTH pattern compilation AND document scanning
 // ============================================================================
 
-// NormalizeRaw cleans and lowercases text for matching.
-func NormalizeRaw(s string) string {
+// isJoiner returns true for punctuation that commonly appears INSIDE names/terms.
+// These are preserved during canonicalization to keep multiword entities coherent.
+// Examples: "Monkey D. Luffy", "O'Brien", "Jean-Luc", "AT&T"
+func isJoiner(r rune) bool {
+	switch r {
+	case '\'', '\u2019', '\u2018', // apostrophe, curly apostrophe variants
+		'-', '\u2013', '\u2014', // hyphen, en-dash, em-dash
+		'\u00B7', '.', '_', '/', '#', '&': // middle dot, period, underscore, etc.
+		return true
+	default:
+		return false
+	}
+}
+
+// isSeparator returns true for characters that split tokens.
+// Everything that's not a letter, digit, or joiner is a separator.
+func isSeparator(r rune) bool {
+	if unicode.IsLetter(r) || unicode.IsDigit(r) || isJoiner(r) {
+		return false
+	}
+	return true
+}
+
+// CanonicalizeForMatch transforms text into a normalized form for Aho-Corasick matching.
+// This is THE function used by both pattern compilation and document scanning.
+// Rules:
+// - Fold to lowercase
+// - Preserve letters, digits, and joiners (apostrophe, hyphen, period, etc.)
+// - Replace all other characters with a single space
+// - Collapse multiple spaces into one
+// - Trim leading/trailing spaces
+//
+// This allows multiword patterns like "Monkey D. Luffy" to match correctly.
+func CanonicalizeForMatch(s string) string {
 	var out strings.Builder
 	out.Grow(len(s))
+
+	lastWasSpace := true // Start true to trim leading spaces
 
 	for _, ch := range s {
 		c := unicode.ToLower(ch)
 
-		// Curly apostrophe -> straight
-		if c == '\u2019' {
-			out.WriteRune('\'')
-			continue
+		// Normalize curly apostrophe to straight
+		if c == '\u2019' || c == '\u2018' {
+			c = '\''
+		}
+		// Normalize en-dash/em-dash to hyphen
+		if c == '\u2013' || c == '\u2014' {
+			c = '-'
 		}
 
-		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '\'' {
+		if unicode.IsLetter(c) || unicode.IsDigit(c) || isJoiner(c) {
 			out.WriteRune(c)
-		} else if unicode.IsSpace(c) {
-			out.WriteRune(' ')
+			lastWasSpace = false
 		} else {
-			out.WriteRune(' ')
+			// Replace any separator with a single space (collapse runs)
+			if !lastWasSpace {
+				out.WriteRune(' ')
+				lastWasSpace = true
+			}
 		}
 	}
 
-	return strings.Join(strings.Fields(out.String()), " ")
+	result := out.String()
+	// Trim trailing space
+	if len(result) > 0 && result[len(result)-1] == ' ' {
+		result = result[:len(result)-1]
+	}
+	return result
 }
+
+// NormalizeRaw is kept for backward compatibility - calls CanonicalizeForMatch
+func NormalizeRaw(s string) string {
+	return CanonicalizeForMatch(s)
+}
+
+// ============================================================================
+// TOKEN WITH OFFSETS - For span anchoring in the UI
+// ============================================================================
+
+// Tok represents a token with its position in the original text.
+type Tok struct {
+	Text  string // The token text (canonicalized)
+	Start int    // Byte offset in original string
+	End   int    // Byte offset (exclusive)
+}
+
+// TokenizeWithOffsets splits text into tokens while preserving byte offsets.
+// Useful for NER candidate generation where you need to anchor spans.
+func TokenizeWithOffsets(s string) []Tok {
+	out := make([]Tok, 0, 64)
+
+	i := 0
+	for i < len(s) {
+		// Skip separators
+		for i < len(s) {
+			r, w := utf8.DecodeRuneInString(s[i:])
+			if !isSeparator(r) {
+				break
+			}
+			i += w
+		}
+		start := i
+
+		// Consume token characters
+		for i < len(s) {
+			r, w := utf8.DecodeRuneInString(s[i:])
+			if isSeparator(r) {
+				break
+			}
+			i += w
+		}
+		end := i
+
+		if start < end {
+			// Canonicalize the token text (lowercase, normalize apostrophes)
+			tokenText := CanonicalizeForMatch(s[start:end])
+			out = append(out, Tok{Text: tokenText, Start: start, End: end})
+		}
+	}
+
+	return out
+}
+
+// ============================================================================
+// StopWords - for filtering common words in NER
+// ============================================================================
 
 // StopWords to filter in tokenization
 var StopWords = map[string]bool{
@@ -52,7 +155,7 @@ var StopWords = map[string]bool{
 
 // TokenizeNorm splits and normalizes, filtering stop words.
 func TokenizeNorm(text string) []string {
-	normalized := NormalizeRaw(text)
+	normalized := CanonicalizeForMatch(text)
 	words := strings.Fields(normalized)
 
 	result := make([]string, 0, len(words))
@@ -157,8 +260,6 @@ type RegisteredEntity struct {
 	NarrativeID string
 }
 
-// UnmarshalJSON was removed to rely on standard unmarshaling into interface{}
-
 // ============================================================================
 // RuntimeDictionary - Dual-Purpose Aho-Corasick
 // ============================================================================
@@ -192,7 +293,8 @@ func NewRuntimeDictionary() *RuntimeDictionary {
 	}
 }
 
-// Compile builds a RuntimeDictionary from registered entities
+// Compile builds a RuntimeDictionary from registered entities.
+// Uses CanonicalizeForMatch for pattern normalization.
 func Compile(entities []RegisteredEntity) (*RuntimeDictionary, error) {
 	dict := NewRuntimeDictionary()
 
@@ -200,6 +302,10 @@ func Compile(entities []RegisteredEntity) (*RuntimeDictionary, error) {
 		// Parse Kind dynamically
 		var k EntityKind
 		switch v := e.Kind.(type) {
+		case EntityKind:
+			k = v
+		case int:
+			k = EntityKind(v)
 		case string:
 			k = ParseKind(v)
 		case float64:
@@ -228,7 +334,8 @@ func Compile(entities []RegisteredEntity) (*RuntimeDictionary, error) {
 		surfaces = append(surfaces, generateAutoAliases(e.Label, k)...)
 
 		for _, surface := range surfaces {
-			key := NormalizeRaw(surface)
+			// USE THE SHARED CANONICALIZER - critical for matching consistency
+			key := CanonicalizeForMatch(surface)
 			if key == "" {
 				continue
 			}
@@ -272,7 +379,7 @@ func (d *RuntimeDictionary) Lookup(surface string) []*EntityInfo {
 		return nil
 	}
 
-	key := NormalizeRaw(surface)
+	key := CanonicalizeForMatch(surface)
 	idx, exists := d.patternIndex[key]
 	if !exists {
 		return nil
@@ -290,7 +397,7 @@ func (d *RuntimeDictionary) Lookup(surface string) []*EntityInfo {
 
 // IsKnownEntity checks if a token matches any known entity
 func (d *RuntimeDictionary) IsKnownEntity(token string) bool {
-	key := NormalizeRaw(token)
+	key := CanonicalizeForMatch(token)
 	_, exists := d.patternIndex[key]
 	return exists
 }
@@ -306,48 +413,110 @@ func (d *RuntimeDictionary) GetInfo(id string) *EntityInfo {
 
 // Match represents a detected entity in text
 type Match struct {
-	Start       int    // Byte offset start
-	End         int    // Byte offset end
-	MatchedText string // Original text slice
+	Start       int    // Byte offset start in ORIGINAL text
+	End         int    // Byte offset end in ORIGINAL text
+	MatchedText string // Original text slice (preserves casing)
 	PatternIdx  int    // Index into patterns slice
 }
 
-// Scan finds all entity mentions in text (O(n) via AC)
+// Scan finds all entity mentions in text (O(n) via AC).
+// Uses CanonicalizeForMatch on input - THE SAME canonicalizer used for patterns.
+// Returns offsets mapped back to the original text for accurate highlighting.
 func (d *RuntimeDictionary) Scan(text string) []Match {
 	if d.ac == nil {
 		return nil
 	}
 
-	// Normalize for matching, but track byte mapping
-	// NOTE: AC scans raw bytes. If we normalize (lowercase), we lose original casing info.
-	// However, since we normalized patterns during build, we must normalize input text too.
-	// But `Match.MatchedText` should probably return the ORIGINAL text segment.
-	// This simple lowercasing means byte offsets might drift if there are unicode length diffs
-	// between lower/upper case, but for most text it's 1:1.
-	// A strictly correct implementation would map normalized offsets back to original.
-	normalized := strings.ToLower(text)
-	haystack := []byte(normalized)
+	// Canonicalize the input text THE SAME WAY we canonicalized patterns
+	canonicalized := CanonicalizeForMatch(text)
+	haystack := []byte(canonicalized)
 
-	// -1 for all matches (non-overlapping due to LeftmostLongest default?)
-	// Actually match kind is set on builder. FindAll returns non-overlapping.
-	matches := d.ac.FindAll(haystack, -1)
+	// Build a mapping from canonicalized byte positions to original byte positions
+	// This handles cases where canonicalization changes string length
+	canonToOrig := buildOffsetMap(text)
+
+	// Use FindAllOverlapping to find ALL entity mentions
+	// For entity extraction we want every match; overlap handling is done at higher level
+	matches := d.ac.FindAllOverlapping(haystack)
 	result := make([]Match, 0, len(matches))
 
 	for _, m := range matches {
-		// Guard against out of bounds just in case
-		if m.End > len(text) {
+		// Map canonicalized offsets back to original text
+		origStart := mapOffset(m.Start, canonToOrig, len(text))
+		origEnd := mapOffset(m.End, canonToOrig, len(text))
+
+		// Validate bounds
+		if origStart >= len(text) || origEnd > len(text) || origStart >= origEnd {
 			continue
 		}
 
 		result = append(result, Match{
-			Start:       m.Start,
-			End:         m.End,
-			MatchedText: text[m.Start:m.End], // Return original text segment
+			Start:       origStart,
+			End:         origEnd,
+			MatchedText: text[origStart:origEnd],
 			PatternIdx:  m.PatternID,
 		})
 	}
 
 	return result
+}
+
+// buildOffsetMap creates a mapping from canonicalized byte positions to original positions.
+// This allows us to map matches found in canonicalized text back to the original.
+func buildOffsetMap(original string) []int {
+	// For each byte position in the canonicalized string, store the corresponding
+	// position in the original string
+	mapping := make([]int, 0, len(original)+1)
+
+	lastWasSpace := true
+	origPos := 0
+
+	for _, ch := range original {
+		runeLen := utf8.RuneLen(ch)
+		c := unicode.ToLower(ch)
+
+		// Normalize curly apostrophe
+		if c == '\u2019' || c == '\u2018' {
+			c = '\''
+		}
+		// Normalize dashes
+		if c == '\u2013' || c == '\u2014' {
+			c = '-'
+		}
+
+		if unicode.IsLetter(c) || unicode.IsDigit(c) || isJoiner(c) {
+			// This character appears in canonicalized output
+			canonLen := utf8.RuneLen(c)
+			for i := 0; i < canonLen; i++ {
+				mapping = append(mapping, origPos)
+			}
+			lastWasSpace = false
+		} else {
+			// Separator - may become a single space
+			if !lastWasSpace {
+				mapping = append(mapping, origPos)
+				lastWasSpace = true
+			}
+		}
+
+		origPos += runeLen
+	}
+
+	// Add final position for end-of-string
+	mapping = append(mapping, origPos)
+
+	return mapping
+}
+
+// mapOffset converts a canonicalized byte offset to an original byte offset
+func mapOffset(canonOffset int, mapping []int, originalLen int) int {
+	if canonOffset >= len(mapping) {
+		return originalLen
+	}
+	if canonOffset < 0 {
+		return 0
+	}
+	return mapping[canonOffset]
 }
 
 // ScanWithInfo returns matches with resolved entity info

@@ -99,6 +99,129 @@ export interface Edge {
 }
 
 // =============================================================================
+// SPAN-FIRST DATA MODEL (Immutable Facts Layer)
+// =============================================================================
+
+/**
+ * TextQuoteSelector - Web Annotation compatible selector for robust anchoring
+ */
+export interface TextQuoteSelector {
+    /** Exact text content of the span */
+    exact: string;
+    /** Text immediately before the span (context for disambiguation) */
+    prefix: string;
+    /** Text immediately after the span (context for disambiguation) */
+    suffix: string;
+}
+
+/**
+ * Span - The atomic immutable fact. All derived data traces back here.
+ * Uses Web Annotation's TextPositionSelector + TextQuoteSelector for resilient anchoring.
+ */
+export interface Span {
+    id: string;                        // UUID
+    worldId: string;                   // Global world/workspace
+    noteId: string;                    // Document containing this span
+    narrativeId?: string;              // Vault scope
+
+    // Position selector (fast path)
+    start: number;                     // Byte offset in document
+    end: number;                       // Byte offset end
+
+    // Quote selector (resilient path)
+    selector: TextQuoteSelector;
+
+    // Provenance
+    createdBy: 'user' | 'scanner' | 'import';
+    status: 'resolved' | 'detached' | 'stale';  // detached = content changed, stale = needs re-anchor
+
+    createdAt: number;
+    updatedAt: number;
+}
+
+/**
+ * Wormhole - A contract binding two spans together.
+ * Spans can be in same or different documents. Wormholes are NOT entity-to-entity.
+ */
+export interface Wormhole {
+    id: string;
+    srcSpanId: string;                 // Source span
+    dstSpanId: string;                 // Destination span
+
+    mode: 'user' | 'suggested' | 'auto';
+    confidence: number;                // 0-1, only meaningful for suggested/auto
+    rationale?: string;                // Why this wormhole exists (for suggestions)
+
+    // Metadata
+    wormholeType?: string;             // Optional semantic type (ref, alias, elaboration, etc.)
+    bidirectional: boolean;
+
+    createdAt: number;
+    updatedAt: number;
+}
+
+/**
+ * SpanMention - Links a Span to a candidate Entity.
+ * The span is the ground truth; entity linkage is derived/optional.
+ */
+export interface SpanMention {
+    id: string;
+    spanId: string;                    // FK to Span (required)
+    candidateEntityId?: string;        // FK to Entity (optional - may be unresolved)
+
+    // Evidence vector for entity resolution
+    matchType: 'exact' | 'alias' | 'fuzzy' | 'inferred';
+    confidence: number;                // 0-1
+
+    // Harvester/virus evidence (for unsupervised NER)
+    evidenceVector?: {
+        frequency: number;             // How often this surface form appears
+        capitalRatio: number;          // Capitalization signal
+        contextScore: number;          // Semantic context fit
+        cooccurrence: number;          // Co-occurrence with known entities
+    };
+
+    status: 'pending' | 'accepted' | 'rejected';
+
+    createdAt: number;
+    updatedAt: number;
+}
+
+/**
+ * Claim - SVO (Subject-Verb-Object) quad edge.
+ * Arguments ALWAYS reference Spans (or through spans, entities).
+ * This ensures all semantic claims are traceable to source text.
+ */
+export interface Claim {
+    id: string;
+    worldId: string;
+    narrativeId?: string;
+
+    // SVO Triple (with optional qualifier for Quad)
+    subjectSpanId: string;             // Span where subject appears
+    subjectEntityId?: string;          // Resolved entity (optional)
+
+    verb: string;                      // Relation type / predicate
+    verbSpanId?: string;               // Span where verb appears (optional)
+
+    objectSpanId: string;              // Span where object appears
+    objectEntityId?: string;           // Resolved entity (optional)
+
+    // Qualifier (for quads - "when", "where", "how")
+    qualifierKey?: string;
+    qualifierValue?: string;
+    qualifierSpanId?: string;
+
+    // Provenance
+    sourceNoteId: string;              // Document where claim was extracted
+    confidence: number;
+    extractedBy: 'user' | 'scanner' | 'llm';
+
+    createdAt: number;
+    updatedAt: number;
+}
+
+// =============================================================================
 // DECORATION & CACHE INTERFACES
 // =============================================================================
 
@@ -321,13 +444,19 @@ export class CrepeDatabase extends Dexie {
     factSheetCardSchemas!: Table<FactSheetCardSchema>;
     factSheetFieldSchemas!: Table<FactSheetFieldSchema>;
 
-    // Folder schemas (NEW)
+    // Folder schemas
     folderSchemas!: Table<FolderSchema>;
 
-    // Networks (NEW)
+    // Networks
     networkSchemas!: Table<NetworkSchema>;
     networkInstances!: Table<NetworkInstance>;
     networkRelationships!: Table<NetworkRelationship>;
+
+    // Span-first data model (v4)
+    spans!: Table<Span>;
+    wormholes!: Table<Wormhole>;
+    spanMentions!: Table<SpanMention>;
+    claims!: Table<Claim>;
 
     constructor() {
         super('CrepeNotes');
@@ -383,8 +512,26 @@ export class CrepeDatabase extends Dexie {
             // Network relationships (NEW)
             networkRelationships: 'id, networkId, sourceEntityId, targetEntityId, relationshipCode'
         });
+
+        // Version 4: Span-first data model (Immutable Facts Layer)
+        // All derived data (entities, claims) traces back to Spans
+        // Only need to specify NEW tables - existing ones are inherited
+        this.version(4).stores({
+            // NEW: Span - immutable fact with Web Annotation selectors
+            spans: 'id, worldId, noteId, narrativeId, status, createdAt, [noteId+status]',
+
+            // NEW: Wormhole - binding contracts between spans
+            wormholes: 'id, srcSpanId, dstSpanId, mode, wormholeType, [srcSpanId+dstSpanId]',
+
+            // NEW: SpanMention - span → candidate entity evidence
+            spanMentions: 'id, spanId, candidateEntityId, status, [spanId+candidateEntityId]',
+
+            // NEW: Claim - SVO quads referencing spans
+            claims: 'id, worldId, narrativeId, subjectSpanId, objectSpanId, verb, sourceNoteId, [subjectEntityId+verb+objectEntityId]'
+        });
     }
 }
 
 export const db = new CrepeDatabase();
+
 

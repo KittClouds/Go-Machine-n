@@ -7,6 +7,7 @@ import { scanDocument, getDecorationStyle, getDecorationClass } from '../lib/Sca
 import { scanForPatternsSync } from '../lib/Scanner/pattern-scanner';
 import type { EntityKind } from '../lib/Scanner/types';
 import { getScanCoordinator } from '../lib/Scanner/scanCoordinatorInstance';
+import { createSelector, realignSpans } from '../lib/Scanner/anchor-utils';
 
 // Real imports
 import { highlightingStore } from '../lib/store/highlightingStore';
@@ -315,16 +316,27 @@ class DefaultHighlighterApi implements HighlighterApi {
                     this.implicitDecorations = cached;
                     this.notifyListeners();
                     return;
+                } else {
+                    // Content changed (hash mismatch) - Try to recover spans via Anchors ("Resolution Ladder")
+                    // This provides "graceful degradation" and instant UI while the fresh scan runs.
+                    // console.log('[HighlighterApi] Content diff detected, realigning spans...');
+                    const realigned = realignSpans(cached, text);
+                    if (realigned.length > 0) {
+                        this.implicitDecorations = realigned;
+                        this.notifyListeners(); // Show realigned spans immediately
+                    }
                 }
             }
         } catch (err) {
             console.warn('[HighlighterApi] Dexie read failed:', err);
         }
 
+        // Always trigger fresh scan if hash mismatch (or cache miss) to get ground truth
         this.triggerImplicitScan(doc, text);
     }
 
     private triggerImplicitScan(doc: ProseMirrorDoc, text?: string, _entityVersion?: number) {
+        // ... existing setup ...
         const myVersion = ++this.scanVersion;
         const batch: { id: number, text: string }[] = [];
         const nodePositions = new Map<number, number>();
@@ -372,6 +384,13 @@ class DefaultHighlighterApi implements HighlighterApi {
                         mergedSpans.push(implicit);
                     }
                 }
+
+                // Add Resilient Anchors (Selectors) to all new spans
+                mergedSpans.forEach(span => {
+                    if (!span.selector) {
+                        span.selector = createSelector(item.text, span.from, span.to);
+                    }
+                });
 
                 return { id: item.id, spans: mergedSpans };
             } catch (e) {
