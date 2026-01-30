@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, computed, inject, effect } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, computed, inject, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
@@ -9,7 +9,7 @@ import { smartGraphRegistry } from '../../../../lib/registry';
 import type { RegisteredEntity } from '../../../../lib/registry';
 import { GraphDetailComponent } from './graph-detail/graph-detail.component';
 import { EntityCreatorDialogComponent, EntityCreatorData } from './entity-creator-dialog/entity-creator-dialog.component';
-import { ScopeService, GLOBAL_SCOPE } from '../../../../lib/services/scope.service';
+import { ScopeService, GLOBAL_SCOPE, ActiveScope } from '../../../../lib/services/scope.service';
 import { db } from '../../../../lib/dexie/db';
 
 // Entity styling
@@ -58,7 +58,7 @@ interface EntityGroup {
     templateUrl: './graph-tab.component.html',
     styleUrl: './graph-tab.component.css'
 })
-export class GraphTabComponent implements OnInit {
+export class GraphTabComponent implements OnInit, OnDestroy {
     private scopeService = inject(ScopeService);
 
     // Icons
@@ -81,6 +81,11 @@ export class GraphTabComponent implements OnInit {
     // Scope state
     activeScope = this.scopeService.activeScope;
     scopeLabel = signal<string>('Global');
+
+    // Dropdown state
+    isScopeMenuOpen = signal(false);
+    hierarchyOptions = signal<{ label: string, type: string, scope: ActiveScope }[]>([]);
+
     scopeIcon = computed(() => {
         const scope = this.activeScope();
         if (scope.id === 'vault:global') return this.GlobeIcon;
@@ -90,27 +95,91 @@ export class GraphTabComponent implements OnInit {
     });
 
     constructor() {
-        // Update scope label when scope changes
+        // React to scope changes
         effect(() => {
-            this.updateScopeLabel();
+            const scope = this.activeScope();
+            this.updateScopeLabel(scope);
+            this.calculateScopeHierarchy(scope); // Calculate parent scopes
         });
     }
 
-    private async updateScopeLabel() {
-        const scope = this.activeScope();
+    private async updateScopeLabel(scope: ActiveScope) {
         if (scope.id === 'vault:global') {
             this.scopeLabel.set('Global');
-            return;
-        }
-        if (scope.type === 'folder' || scope.type === 'narrative') {
+        } else if (scope.type === 'folder' || scope.type === 'narrative') {
             const folder = await db.folders.get(scope.id);
             this.scopeLabel.set(folder?.name || 'Folder');
         } else if (scope.type === 'note') {
             const note = await db.notes.get(scope.id);
             this.scopeLabel.set(note?.title || 'Note');
         }
-        // Also refresh entities when scope changes
+        // Refresh entities when scope changes
         this.refreshEntities();
+    }
+
+    /**
+     * Build the hierarchy options for the dropdown
+     * e.g. "My Note" -> "My Folder" -> "My Narrative" -> "Global"
+     */
+    private async calculateScopeHierarchy(scope: ActiveScope) {
+        const options: { label: string, type: string, scope: ActiveScope }[] = [];
+
+        // 1. Current Scope
+        // (Skipping current scope in the list as it's already selected, 
+        //  but maybe useful to show as "active")
+
+        // 2. Parents
+        if (scope.type === 'note') {
+            const note = await db.notes.get(scope.id);
+            if (note && note.folderId) {
+                const folder = await db.folders.get(note.folderId);
+                if (folder) {
+                    options.push({
+                        label: folder.name,
+                        type: 'Folder',
+                        scope: { type: 'folder', id: folder.id, narrativeId: folder.narrativeId }
+                    });
+                }
+            }
+        }
+
+        // Narrative level validation (if current isn't already narrative)
+        if (scope.type !== 'narrative' && scope.narrativeId) {
+            // Usually narrativeId maps to a root folder
+            const narrativeFolder = await db.folders.get(scope.narrativeId);
+            if (narrativeFolder) {
+                // Check if we haven't added it yet (e.g. if parent folder IS the narrative root)
+                if (!options.find(o => o.scope.id === narrativeFolder.id)) {
+                    options.push({
+                        label: narrativeFolder.name,
+                        type: 'Narrative',
+                        scope: { type: 'narrative', id: narrativeFolder.id, narrativeId: narrativeFolder.id }
+                    });
+                }
+            }
+        }
+
+        // 3. Global (Always available at bottom)
+        options.push({
+            label: 'Global Scope',
+            type: 'Vault',
+            scope: GLOBAL_SCOPE
+        });
+
+        this.hierarchyOptions.set(options);
+    }
+
+    toggleScopeMenu() {
+        this.isScopeMenuOpen.update(v => !v);
+    }
+
+    closeScopeMenu() {
+        this.isScopeMenuOpen.set(false);
+    }
+
+    switchToScope(option: { scope: ActiveScope }) {
+        this.scopeService.setScope(option.scope);
+        this.closeScopeMenu();
     }
 
     // Computed: Group entities by kind
@@ -135,15 +204,27 @@ export class GraphTabComponent implements OnInit {
 
     totalEntities = computed(() => this.entities().length);
 
+    private unsubscribeRegistry: (() => void) | null = null;
+
     ngOnInit() {
         this.refreshEntities();
         // Expand all groups by default
         const allKinds = new Set(this.entities().map(e => e.kind));
         this.expandedKinds.set(allKinds);
 
+        // Subscribe to registry changes
+        this.unsubscribeRegistry = smartGraphRegistry.subscribe(() => {
+            console.log('[GraphTab] Registry changed, refreshing entities...');
+            this.refreshEntities();
+        });
+
         if (typeof window !== 'undefined') {
             window.addEventListener('entities-changed', () => this.refreshEntities());
         }
+    }
+
+    ngOnDestroy() {
+        this.unsubscribeRegistry?.();
     }
 
     async refreshEntities() {

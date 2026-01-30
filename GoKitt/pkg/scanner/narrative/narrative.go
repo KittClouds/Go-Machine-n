@@ -38,7 +38,8 @@ var verbEntries = []verbEntry{
 	{"battl", EventBattle, RelFights, Intransitive}, // battle with
 	{"defeat", EventBattle, RelDefeats, Transitive},
 	{"duel", EventDuel, RelFights, Intransitive},
-	{"fight", EventBattle, RelFights, Transitive}, // fight X
+	{"fight", EventBattle, RelFights, Transitive},  // fight X
+	{"fought", EventBattle, RelFights, Transitive}, // Irregular past of 'fight'
 	{"kill", EventDeath, RelKills, Transitive},
 	{"slay", EventDeath, RelKills, Transitive},
 	{"wound", EventBattle, RelAttacks, Transitive},

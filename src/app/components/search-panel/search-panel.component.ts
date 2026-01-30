@@ -1,4 +1,4 @@
-import { Component, signal, computed, effect } from '@angular/core';
+import { Component, signal, computed, effect, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NgIcon, provideIcons } from '@ng-icons/core';
@@ -7,6 +7,7 @@ import {
   lucideCheckCircle2, lucideAlertCircle, lucideChevronDown, lucideFileText,
   lucideSparkles, lucideMicrochip
 } from '@ng-icons/lucide';
+import { SemanticSearchService } from '../../lib/services/semantic-search.service';
 
 type RagStatus = 'idle' | 'initializing' | 'loading-model' | 'setting-dims' | 'ready' | 'indexing' | 'searching' | 'error';
 type SearchMode = 'vector' | 'hybrid' | 'raptor';
@@ -100,24 +101,28 @@ interface RagStats {
       </div>
 
       <!-- Search Mode Toggles -->
-      <div class="flex items-center gap-1 p-1 rounded-lg bg-zinc-900/60 border border-zinc-800/50 mb-3 shrink-0">
+      <div class="flex items-center gap-1 p-1 rounded-lg bg-zinc-950/40 border border-zinc-800/60 mb-3 shrink-0 shadow-sm">
         <button
           *ngFor="let mode of modes"
           (click)="searchMode.set(mode.id)"
-          class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all duration-200 relative overflow-hidden"
-          [class.bg-gradient-to-r]="searchMode() === mode.id"
-          [class.from-teal-500_20]="searchMode() === mode.id"
-          [class.to-cyan-500_10]="searchMode() === mode.id"
+          class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all duration-300 relative overflow-hidden group"
+          [class.bg-gradient-to-b]="searchMode() === mode.id"
+          [class.from-teal-500_10]="searchMode() === mode.id"
+          [class.to-teal-500_5]="searchMode() === mode.id"
           [class.text-teal-300]="searchMode() === mode.id"
-          [class.border]="searchMode() === mode.id"
+          [class.border]="true"
           [class.border-teal-500_30]="searchMode() === mode.id"
           [class.shadow-sm]="searchMode() === mode.id"
-          [class.shadow-teal-500_10]="searchMode() === mode.id"
+          [class.shadow-teal-500_5]="searchMode() === mode.id"
           [class.text-zinc-500]="searchMode() !== mode.id"
+          [class.border-transparent]="searchMode() !== mode.id"
           [class.hover:text-zinc-300]="searchMode() !== mode.id"
-          [class.hover:bg-zinc-800_50]="searchMode() !== mode.id"
+          [class.hover:bg-zinc-800_40]="searchMode() !== mode.id"
         >
-          <ng-icon [name]="mode.icon" class="w-3.5 h-3.5 relative z-10"></ng-icon>
+          <!-- Active Glow -->
+          <div *ngIf="searchMode() === mode.id" class="absolute inset-0 bg-teal-400/5 mix-blend-overlay"></div>
+          
+          <ng-icon [name]="mode.icon" class="w-3.5 h-3.5 relative z-10 transition-transform group-hover:scale-110 duration-200"></ng-icon>
           <span class="relative z-10">{{ mode.label }}</span>
         </button>
       </div>
@@ -126,15 +131,17 @@ interface RagStats {
       <div class="mb-3 shrink-0">
         <button 
           (click)="toggleAdvanced()"
-          class="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-800/30 text-xs text-zinc-400 hover:text-zinc-300 hover:bg-zinc-900/60 transition-colors"
+          class="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-800/50 hover:border-zinc-700/50 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/80 transition-all duration-200 group"
         >
           <span class="flex items-center gap-2">
-            <ng-icon name="lucideCpu" class="w-3.5 h-3.5"></ng-icon>
+            <div class="p-1 rounded bg-zinc-800/50 group-hover:bg-zinc-700/50 transition-colors">
+                 <ng-icon name="lucideCpu" class="w-3.5 h-3.5"></ng-icon>
+            </div>
             Model Settings
           </span>
           <ng-icon 
             name="lucideChevronDown" 
-            class="w-4 h-4 transition-transform duration-200"
+            class="w-4 h-4 transition-transform duration-200 text-zinc-600 group-hover:text-zinc-400"
             [class.rotate-180]="showAdvanced()"
           ></ng-icon>
         </button>
@@ -146,50 +153,51 @@ interface RagStats {
           [style.opacity]="showAdvanced() ? '1' : '0'"
           [style.margin-top]="showAdvanced() ? '0.75rem' : '0'"
         >
-          <div class="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/30 space-y-3">
+          <div class="p-3 rounded-lg bg-zinc-950/30 border border-zinc-800/50 space-y-3 shadow-inner">
              <!-- Model Selection -->
              <div>
-                <div class="text-xs text-zinc-400 font-medium mb-2">Embedding Model</div>
+                <div class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-2 px-1">Embedding Model</div>
                 <div class="grid grid-cols-1 gap-2">
                   <button
                     *ngFor="let model of models"
                     (click)="selectedModel.set(model.id)"
-                    class="p-2 rounded-md text-xs text-left transition-all relative overflow-hidden group"
-                    [class.bg-teal-500_10]="selectedModel() === model.id"
+                    class="p-2.5 rounded-md text-xs text-left transition-all relative overflow-hidden group border"
+                    [class.bg-teal-950_30]="selectedModel() === model.id"
                     [class.border-teal-500_30]="selectedModel() === model.id"
-                    [class.text-teal-300]="selectedModel() === model.id"
-                    [class.border]="true"
-                    [class.bg-zinc-800_50]="selectedModel() !== model.id"
-                    [class.border-zinc-700_30]="selectedModel() !== model.id"
+                    [class.text-teal-200]="selectedModel() === model.id"
+                    [class.bg-zinc-900_40]="selectedModel() !== model.id"
+                    [class.border-zinc-800_50]="selectedModel() !== model.id"
                     [class.text-zinc-400]="selectedModel() !== model.id"
-                    [class.hover:text-zinc-300]="selectedModel() !== model.id"
+                    [class.hover:border-zinc-700]="selectedModel() !== model.id"
+                    [class.hover:bg-zinc-800_40]="selectedModel() !== model.id"
                   >
                     <div class="flex justify-between items-center mb-0.5 relative z-10">
-                      <span class="font-medium">{{ model.label }}</span>
-                      <span class="text-[10px] opacity-70">{{ model.dims }}d</span>
+                      <span class="font-medium group-hover:text-teal-300 transition-colors">{{ model.label }}</span>
+                      <span class="text-[10px] opacity-70 bg-zinc-950/30 px-1.5 py-0.5 rounded border border-white/5">{{ model.dims }}d</span>
                     </div>
                     <div class="text-[10px] opacity-60 relative z-10">{{ model.desc }}</div>
                     
                     <!-- Selection Indicator -->
-                    <div *ngIf="selectedModel() === model.id" class="absolute inset-0 bg-gradient-to-r from-teal-500/10 to-transparent pointer-events-none"></div>
+                    <div *ngIf="selectedModel() === model.id" class="absolute inset-0 bg-gradient-to-r from-teal-500/10 via-transparent to-transparent pointer-events-none"></div>
                   </button>
                 </div>
              </div>
 
              <!-- Truncation -->
              <div>
-                <div class="text-xs text-zinc-400 font-medium mt-3 mb-2">Dimension Truncation</div>
-                <div class="grid grid-cols-4 gap-1">
+                <div class="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mt-3 mb-2 px-1">Dimension Truncation</div>
+                <div class="grid grid-cols-4 gap-1.5">
                   <button
                     *ngFor="let dim of truncateDims"
                     (click)="truncateDim.set(dim)"
-                    class="py-1.5 rounded text-xs font-medium transition-all border"
+                    class="py-1.5 rounded text-xs font-medium transition-all border relative overflow-hidden"
                     [class.bg-teal-500_20]="truncateDim() === dim"
                     [class.text-teal-300]="truncateDim() === dim"
                     [class.border-teal-500_30]="truncateDim() === dim"
-                    [class.bg-zinc-800_50]="truncateDim() !== dim"
+                    [class.bg-zinc-900_50]="truncateDim() !== dim"
                     [class.text-zinc-500]="truncateDim() !== dim"
-                    [class.border-zinc-700_30]="truncateDim() !== dim"
+                    [class.border-zinc-800]="truncateDim() !== dim"
+                    [class.hover:border-zinc-700]="truncateDim() !== dim"
                     [class.hover:text-zinc-300]="truncateDim() !== dim"
                   >
                     {{ dim === 'full' ? 'Full' : dim + 'd' }}
@@ -198,20 +206,23 @@ interface RagStats {
              </div>
              
              <!-- Hybrid Slider -->
-            <div *ngIf="searchMode() === 'hybrid'" class="pt-2">
-                <div class="flex justify-between text-xs text-zinc-400 mb-2">
+            <div *ngIf="searchMode() === 'hybrid'" class="pt-2 px-1">
+                <div class="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
                     <span>Vector Weight</span>
                     <span class="text-teal-400">{{ (vectorWeight() * 100).toFixed(0) }}%</span>
                 </div>
-                <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    [ngModel]="vectorWeight()"
-                    (ngModelChange)="vectorWeight.set($event)"
-                    class="w-full h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-teal-500"
-                />
+                <div class="relative h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                    <div class="absolute top-0 bottom-0 left-0 bg-teal-500/50" [style.width.%]="vectorWeight() * 100"></div>
+                    <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        [ngModel]="vectorWeight()"
+                        (ngModelChange)="vectorWeight.set($event)"
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                </div>
             </div>
           </div>
         </div>
@@ -222,18 +233,20 @@ interface RagStats {
         <button
           (click)="loadModel()"
           [disabled]="status() === 'loading-model' || status() === 'initializing'"
-          class="flex-1 h-9 flex items-center justify-center text-xs rounded-md border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          [class.bg-zinc-900_60]="true"
-          [class.border-zinc-700_50]="true"
-          [class.text-zinc-300]="true"
+          class="flex-1 h-9 flex items-center justify-center text-xs font-medium rounded-md border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden"
+          [class.bg-zinc-900]="true"
+          [class.border-zinc-800]="true"
+          [class.text-zinc-400]="true"
           [class.hover:bg-zinc-800]="true"
-          [class.hover:text-zinc-100]="true"
-          [class.hover:border-teal-500_30]="true"
+          [class.hover:text-zinc-200]="true"
+          [class.hover:border-zinc-700]="true"
         >
+          <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
           <ng-icon 
             [name]="status() === 'loading-model' ? 'lucideLoader2' : 'lucideCpu'" 
-            class="w-3.5 h-3.5 mr-1.5"
+            class="w-3.5 h-3.5 mr-1.5 transition-colors"
             [class.animate-spin]="status() === 'loading-model'"
+            [class.text-teal-500]="status() === 'loading-model'"
           ></ng-icon>
           Load Model
         </button>
@@ -241,20 +254,22 @@ interface RagStats {
         <button
           (click)="indexNotes()"
           [disabled]="status() !== 'ready'"
-          class="flex-1 h-9 flex items-center justify-center text-xs rounded-md border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          [class.bg-zinc-900_60]="true"
-          [class.border-zinc-700_50]="true"
-          [class.text-zinc-300]="true"
+          class="flex-1 h-9 flex items-center justify-center text-xs font-medium rounded-md border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden"
+          [class.bg-zinc-900]="true"
+          [class.border-zinc-800]="true"
+          [class.text-zinc-400]="true"
           [class.hover:bg-zinc-800]="true"
-          [class.hover:text-zinc-100]="true"
+          [class.hover:text-zinc-200]="true"
           [class.hover:border-teal-500_30]="true"
         >
+          <div class="absolute inset-0 bg-gradient-to-r from-transparent via-teal-500/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
            <ng-icon 
             [name]="status() === 'indexing' ? 'lucideLoader2' : 'lucideZap'" 
-            class="w-3.5 h-3.5 mr-1.5"
+            class="w-3.5 h-3.5 mr-1.5 group-hover:text-teal-400 transition-colors"
             [class.animate-spin]="status() === 'indexing'"
+            [class.text-teal-400]="status() === 'indexing'"
           ></ng-icon>
-          Index (<span class="text-teal-400">{{ stats().notes }}</span>)
+          Index (<span class="text-zinc-300 group-hover:text-teal-300 transition-colors">{{ stats().notes }}</span>)
         </button>
       </div>
 
@@ -277,18 +292,21 @@ interface RagStats {
             
             <button
                 *ngFor="let result of results()"
-                class="w-full p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/30 text-left hover:bg-zinc-900/60 hover:border-teal-500/20 transition-all group animate-in fade-in slide-in-from-bottom-2 duration-300"
+                class="w-full p-3 rounded-lg bg-zinc-950/30 border border-zinc-800/50 text-left hover:bg-gradient-to-br hover:from-zinc-900/80 hover:to-zinc-900/40 hover:border-teal-500/30 transition-all group animate-in fade-in slide-in-from-bottom-2 duration-300 relative overflow-hidden"
                 (click)="handleResultClick(result)"
             >
-                <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-sm font-medium text-zinc-200 group-hover:text-teal-300 transition-colors truncate">
+                <div class="absolute inset-0 bg-teal-500/0 group-hover:bg-teal-500/5 transition-colors duration-300"></div>
+                <div class="absolute left-0 top-0 bottom-0 w-0.5 bg-teal-500/0 group-hover:bg-teal-500/50 transition-colors duration-300"></div>
+
+                <div class="flex items-center justify-between mb-1.5 relative z-10">
+                    <span class="text-sm font-medium text-zinc-300 group-hover:text-teal-200 transition-colors truncate">
                         {{ result.note_title }}
                     </span>
-                    <span class="text-xs font-mono text-teal-500/80 shrink-0 ml-2 bg-teal-500/10 px-1.5 py-0.5 rounded">
+                    <span class="text-[10px] font-mono font-medium text-teal-600/80 shrink-0 ml-2 bg-teal-500/5 border border-teal-500/10 px-1.5 py-0.5 rounded group-hover:bg-teal-500/10 group-hover:text-teal-400 group-hover:border-teal-500/20 transition-all">
                         {{ (result.score * 100).toFixed(1) }}%
                     </span>
                 </div>
-                <p class="text-xs text-zinc-500 line-clamp-2 leading-relaxed group-hover:text-zinc-400 transition-colors">
+                <p class="text-xs text-zinc-500 line-clamp-2 leading-relaxed group-hover:text-zinc-400 transition-colors relative z-10">
                     {{ result.chunk_text }}
                 </p>
             </button>
@@ -320,11 +338,13 @@ interface RagStats {
     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
   `]
 })
-export class SearchPanelComponent {
+export class SearchPanelComponent implements OnInit {
+  private searchService = inject(SemanticSearchService);
+
   // Signals
   status = signal<RagStatus>('idle');
   error = signal<string | null>(null);
-  stats = signal<RagStats>({ notes: 124, chunks: 0 }); // Mock notes count
+  stats = signal<RagStats>({ notes: 0, chunks: 0 });
   query = signal('');
   results = signal<SearchResult[]>([]);
   searchTime = signal(0);
@@ -374,67 +394,91 @@ export class SearchPanelComponent {
     });
   }
 
+  async ngOnInit() {
+    // Load initial stats
+    try {
+      const s = await this.searchService.getStats();
+      this.stats.set(s);
+    } catch (err) {
+      console.warn('[SearchPanel] Failed to load stats:', err);
+    }
+  }
+
   toggleAdvanced() {
     this.showAdvanced.update(v => !v);
   }
 
-  // Actions (Mocked for UI demo)
+  // Actions
   getModelLabel(id: ModelId): string {
     return this.models.find(m => m.id === id)?.label || id;
   }
 
-  loadModel() {
+  async loadModel() {
     this.status.set('loading-model');
-    // Simulate loading
-    setTimeout(() => {
+    this.error.set(null);
+
+    try {
+      await this.searchService.initializeWorker();
       this.status.set('ready');
-    }, 1500);
+    } catch (err) {
+      console.error('[SearchPanel] Failed to load model:', err);
+      this.error.set(err instanceof Error ? err.message : 'Failed to load model');
+      this.status.set('error');
+    }
   }
 
-  indexNotes() {
+  async indexNotes() {
+    if (this.status() !== 'ready') return;
+
     this.status.set('indexing');
-    setTimeout(() => {
-      this.stats.update(s => ({ ...s, chunks: s.notes * 3 })); // Mock chunks
+    this.error.set(null);
+
+    try {
+      // TODO: Get notes from Dexie and pass to service
+      // For now, simulate indexing
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const s = await this.searchService.getStats();
+      this.stats.set(s);
       this.status.set('ready');
-    }, 2000);
+    } catch (err) {
+      console.error('[SearchPanel] Indexing failed:', err);
+      this.error.set(err instanceof Error ? err.message : 'Indexing failed');
+      this.status.set('error');
+    }
   }
 
-  handleSearch() {
+  async handleSearch() {
     if (!this.query().trim() || this.status() !== 'ready') return;
 
     this.status.set('searching');
+    this.error.set(null);
     const startTime = performance.now();
 
-    // Simulate search delay + mock results
-    setTimeout(() => {
-      const mockResults: SearchResult[] = [
-        {
-          note_id: '1',
-          note_title: 'The Age of Arcanum',
-          chunk_text: 'Before the Calamity, the Age of Arcanum was a time of great magical prosperity. Floating cities like Aeor populated the skies...',
-          score: 0.92,
-          chunk_index: 0
-        },
-        {
-          note_id: '2',
-          note_title: 'Calamity History',
-          chunk_text: 'The divergence of the gods led to the catastrophic war known as the Calamity, reshaping the geography of Exandria forever.',
-          score: 0.88,
-          chunk_index: 2
-        },
-        {
-          note_id: '3',
-          note_title: 'Vestiges of Divergence',
-          chunk_text: 'Powerful artifacts created during the war, the Vestiges grow in power with their wielder, awakening to new states.',
-          score: 0.76,
-          chunk_index: 0
-        }
-      ];
+    try {
+      const searchResults = await this.searchService.search(this.query(), {
+        k: 10,
+        mode: this.searchMode() === 'raptor' ? 'collapsed' : 'leaves',
+        scoped: true
+      });
 
-      this.results.set(mockResults);
+      // Map to component's SearchResult format
+      const mapped: SearchResult[] = searchResults.map(r => ({
+        note_id: r.noteId,
+        note_title: r.noteTitle,
+        chunk_text: r.chunkText,
+        score: r.score,
+        chunk_index: r.chunkIndex
+      }));
+
+      this.results.set(mapped);
       this.searchTime.set(Math.round(performance.now() - startTime));
       this.status.set('ready');
-    }, 600);
+    } catch (err) {
+      console.error('[SearchPanel] Search failed:', err);
+      this.error.set(err instanceof Error ? err.message : 'Search failed');
+      this.status.set('error');
+    }
   }
 
   handleResultClick(result: SearchResult) {

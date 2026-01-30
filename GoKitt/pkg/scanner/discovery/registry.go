@@ -3,7 +3,7 @@ package discovery
 import (
 	"strings"
 
-	"github.com/kittclouds/gokitt/pkg/dafsa"
+	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/orsinium-labs/stopwords"
 )
 
@@ -20,8 +20,8 @@ const (
 type CandidateStats struct {
 	Count        int
 	Status       CandidateStatus
-	InferredKind *dafsa.EntityKind // Pointer to allow nil (unknown)
-	Display      string            // Best display form seen
+	InferredKind *implicitmatcher.EntityKind // Pointer to allow nil (unknown)
+	Display      string                      // Best display form seen
 }
 
 // CandidateRegistry tracks potential new entities
@@ -45,7 +45,7 @@ func NewRegistry(threshold int) *CandidateRegistry {
 	}
 
 	// Also load our dafsa stopwords as a backup
-	for w := range dafsa.StopWords {
+	for w := range implicitmatcher.StopWords {
 		r.StopWords[w] = true
 	}
 
@@ -115,7 +115,7 @@ func (r *CandidateRegistry) GetStatus(raw string) CandidateStatus {
 }
 
 // ProposeInference updates the inferred kind
-func (r *CandidateRegistry) ProposeInference(raw string, kind dafsa.EntityKind) {
+func (r *CandidateRegistry) ProposeInference(raw string, kind implicitmatcher.EntityKind) {
 	key, _, valid := Canonicalize(raw)
 	if !valid {
 		return

@@ -18,6 +18,7 @@ export type VectorDimension = 768 | 384 | 256 | 128;
 
 export interface NodeVector {
   nodeId: string;
+  narrativeId: string;  // Scope filter for vault/narrative
   model: string;
   dimension: VectorDimension;
   vector: Float32Array | number[];
@@ -64,6 +65,7 @@ export interface CooccurrenceEdge {
 export const NODE_VECTORS_SCHEMA = `
 :create node_vectors {
     node_id: String =>
+    narrative_id: String,
     model: String,
     dimension: Int,
     vector: [Float],
@@ -173,17 +175,17 @@ export const CROSSDOC_QUERIES = {
 
   /** Upsert a node vector */
   upsertVector: `
-    ?[node_id, model, dimension, vector, context_text, created_at] <- 
-      [[$node_id, $model, $dimension, $vector, $context_text, $created_at]]
+    ?[node_id, narrative_id, model, dimension, vector, context_text, created_at] <- 
+      [[$node_id, $narrative_id, $model, $dimension, $vector, $context_text, $created_at]]
     :put node_vectors {
-      node_id => model, dimension, vector, context_text, created_at
+      node_id => narrative_id, model, dimension, vector, context_text, created_at
     }
   `,
 
   /** Get vector by node ID */
   getVector: `
-    ?[node_id, model, dimension, vector, context_text, created_at] := 
-      *node_vectors{node_id, model, dimension, vector, context_text, created_at},
+    ?[node_id, narrative_id, model, dimension, vector, context_text, created_at] := 
+      *node_vectors{node_id, narrative_id, model, dimension, vector, context_text, created_at},
       node_id == $node_id
   `,
 

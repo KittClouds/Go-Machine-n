@@ -1,0 +1,203 @@
+<div class="h-full flex flex-col bg-background text-foreground">
+    <!-- Header -->
+    <div class="flex items-center justify-between p-4 border-b border-border">
+        <div class="flex items-center gap-3">
+            <button pButton icon="pi pi-arrow-left" class="p-button-text p-button-rounded p-button-sm w-8 h-8"
+                (click)="cancel.emit()"></button>
+            <div>
+                <h2 class="text-lg font-semibold">{{ isNew ? 'Create Pattern' : 'Edit Pattern' }}</h2>
+                <p class="text-sm text-muted-foreground">
+                    {{ isNew ? 'Define a new pattern for detecting references.' : 'Editing pattern: ' + _draft.name }}
+                </p>
+            </div>
+        </div>
+
+        <!-- Mode Toggle -->
+        <div class="flex items-center gap-1 bg-muted p-1 rounded-lg">
+            <button class="px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5"
+                [class.bg-background]="mode === 'builder'" [class.text-foreground]="mode === 'builder'"
+                [class.text-muted-foreground]="mode !== 'builder'" [class.shadow-sm]="mode === 'builder'"
+                (click)="mode = 'builder'">
+                <i class="pi pi-th-large text-xs"></i>
+                Builder
+            </button>
+            <button class="px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5"
+                [class.bg-background]="mode === 'advanced'" [class.text-foreground]="mode === 'advanced'"
+                [class.text-muted-foreground]="mode !== 'advanced'" [class.shadow-sm]="mode === 'advanced'"
+                (click)="mode = 'advanced'">
+                <i class="pi pi-code text-xs"></i>
+                Advanced
+            </button>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="flex-1 overflow-hidden flex flex-col">
+        <!-- Builder Mode -->
+        <div *ngIf="mode === 'builder'" class="h-full overflow-y-auto p-4 custom-scrollbar">
+            <app-pattern-builder [pattern]="_tokenPattern" (patternChange)="handleTokenPatternChange($event)">
+            </app-pattern-builder>
+        </div>
+
+        <!-- Advanced Mode -->
+        <div *ngIf="mode === 'advanced'" class="h-full overflow-y-auto p-4 custom-scrollbar">
+            <p-tabs [(value)]="activeTabIndex">
+                <p-tablist>
+                    <p-tab [value]="0">Basic</p-tab>
+                    <p-tab [value]="1">Captures</p-tab>
+                    <p-tab [value]="2">Rendering</p-tab>
+                </p-tablist>
+                <p-tabpanels>
+                    <!-- Basic Tab -->
+                    <p-tabpanel [value]="0">
+                        <div class="space-y-4 max-w-2xl pt-4">
+                            <div class="flex flex-col gap-2">
+                                <label class="font-medium text-sm">Name</label>
+                                <input pInputText [ngModel]="_draft.name" (ngModelChange)="updateName($event)"
+                                    placeholder="My Pattern">
+                            </div>
+
+                            <div class="flex flex-col gap-2">
+                                <label class="font-medium text-sm">Description</label>
+                                <input pInputText [ngModel]="_draft.description"
+                                    (ngModelChange)="updateDescription($event)" placeholder="What matches this?">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="flex flex-col gap-2">
+                                    <label class="font-medium text-sm">Kind</label>
+                                    <p-select [options]="refKinds" [ngModel]="_draft.kind"
+                                        (ngModelChange)="updateKind($event)" optionLabel="label" optionValue="value"
+                                        styleClass="w-full">
+                                    </p-select>
+                                </div>
+                                <div class="flex flex-col gap-2">
+                                    <label class="font-medium text-sm">Priority</label>
+                                    <input pInputText type="number" [ngModel]="_draft.priority"
+                                        (ngModelChange)="updatePriority(+$event)">
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col gap-2">
+                                <label class="font-medium text-sm">Regex Pattern</label>
+                                <textarea pTextarea [ngModel]="_draft.pattern" (ngModelChange)="updatePattern($event)"
+                                    rows="3" class="font-mono text-sm w-full"></textarea>
+
+                                <div *ngIf="validation.valid" class="text-green-600 text-xs flex items-center gap-1">
+                                    <i class="pi pi-check-circle"></i> Valid pattern ({{ captureGroupCount }} groups)
+                                </div>
+                                <div *ngIf="!validation.valid" class="text-red-600 text-xs flex items-center gap-1">
+                                    <i class="pi pi-exclamation-circle"></i> {{ validation.error }}
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col gap-2">
+                                <label class="font-medium text-sm">Flags</label>
+                                <input pInputText [ngModel]="_draft.flags" (ngModelChange)="updateFlags($event)"
+                                    class="w-32">
+                            </div>
+
+                            <div class="flex items-center justify-between border p-3 rounded-lg bg-card">
+                                <div>
+                                    <label class="font-medium text-sm block">Enabled</label>
+                                    <p class="text-xs text-muted-foreground">Pattern acts on input</p>
+                                </div>
+                                <p-toggleswitch [ngModel]="_draft.enabled"
+                                    (ngModelChange)="updateEnabled($event)"></p-toggleswitch>
+                            </div>
+                        </div>
+                    </p-tabpanel>
+
+                    <!-- Captures Tab -->
+                    <p-tabpanel [value]="1">
+                        <div class="space-y-4 max-w-2xl pt-4">
+                            <div class="p-3 border rounded bg-blue-50 text-blue-700 text-xs flex gap-2">
+                                <i class="pi pi-info-circle"></i>
+                                Map regex groups (1-indexed) to named fields.
+                            </div>
+
+                            <div class="space-y-3">
+                                <div *ngFor="let key of captureKeys"
+                                    class="flex items-center gap-3 p-3 border rounded-lg bg-card">
+                                    <div class="flex-1 font-medium text-sm">{{ key }}</div>
+                                    <div class="flex items-center gap-2">
+                                        <label class="text-xs text-muted-foreground">Group</label>
+                                        <input pInputText type="number" [ngModel]="_draft.captures[key]?.group"
+                                            (ngModelChange)="updateCaptureGroup(key, +$event)"
+                                            class="w-16 h-8 text-center">
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <p-toggleswitch [ngModel]="_draft.captures[key]?.required"
+                                            (ngModelChange)="updateCaptureRequired(key, $event)"></p-toggleswitch>
+                                        <label class="text-xs">Required</label>
+                                    </div>
+                                    <button pButton icon="pi pi-times"
+                                        class="p-button-text p-button-danger p-button-rounded h-8 w-8"
+                                        (click)="removeCapture(key)"></button>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2 mt-4">
+                                <input pInputText [(ngModel)]="newCaptureKey" placeholder="Capture name (e.g. label)"
+                                    class="flex-1">
+                                <button pButton label="Add" icon="pi pi-plus" class="p-button-outlined p-button-sm"
+                                    (click)="addCapture()" [disabled]="!newCaptureKey"></button>
+                            </div>
+                        </div>
+                    </p-tabpanel>
+
+                    <!-- Rendering Tab -->
+                    <p-tabpanel [value]="2">
+                        <div class="space-y-4 max-w-2xl pt-4">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <label class="font-medium text-sm block">Widget Mode</label>
+                                    <p class="text-xs text-muted-foreground">Render as widget block instead of inline
+                                        text</p>
+                                </div>
+                                <p-toggleswitch [ngModel]="_draft.rendering?.widgetMode"
+                                    (ngModelChange)="updateWidgetMode($event)"></p-toggleswitch>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="flex flex-col gap-2">
+                                    <label class="font-medium text-sm">Text Color</label>
+                                    <input pInputText [ngModel]="_draft.rendering?.color"
+                                        (ngModelChange)="updateColor($event)" placeholder="#3b82f6">
+                                </div>
+                                <div class="flex flex-col gap-2">
+                                    <label class="font-medium text-sm">Bg Color</label>
+                                    <input pInputText [ngModel]="_draft.rendering?.backgroundColor"
+                                        (ngModelChange)="updateBgColor($event)" placeholder="#3b82f620">
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col gap-2">
+                                <label class="font-medium text-sm">Template</label>
+                                <input pInputText [ngModel]="_draft.rendering?.template"
+                                    (ngModelChange)="updateTemplate($event)" placeholder="{{'{{label}}'}}">
+                                <p class="text-xs text-muted-foreground">Use {{'{{captureName}}'}} to insert values</p>
+                            </div>
+
+                            <div class="p-4 border rounded-lg bg-muted/30 mt-4">
+                                <label class="font-medium text-sm block mb-2">Preview</label>
+                                <span [style.color]="_draft.rendering?.color || '#3b82f6'"
+                                    [style.backgroundColor]="_draft.rendering?.backgroundColor || '#3b82f620'"
+                                    class="px-1.5 py-0.5 rounded font-medium text-sm">
+                                    Example Match
+                                </span>
+                            </div>
+                        </div>
+                    </p-tabpanel>
+                </p-tabpanels>
+            </p-tabs>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="p-4 border-t bg-muted/20 flex items-center justify-end gap-2">
+        <button pButton label="Cancel" class="p-button-outlined" (click)="cancel.emit()"></button>
+        <button pButton [label]="isNew ? 'Create Pattern' : 'Save Changes'" (click)="onSave()"
+            [disabled]="!canSave"></button>
+    </div>
+</div>

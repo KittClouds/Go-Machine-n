@@ -1,0 +1,112 @@
+<div class="space-y-6">
+    <!-- Header Row -->
+    <div class="grid grid-cols-[1fr_auto_120px] gap-4">
+        <div class="flex flex-col gap-2">
+            <label class="font-medium text-sm">Pattern Name</label>
+            <input pInputText [ngModel]="pattern.name" (ngModelChange)="updatePattern({name: $event})"
+                placeholder="My Custom Pattern">
+        </div>
+
+        <div class="flex flex-col gap-2">
+            <label class="font-medium text-sm">Kind</label>
+            <p-select [options]="refKinds" [ngModel]="pattern.kind" (ngModelChange)="updatePattern({kind: $event})"
+                optionLabel="label" optionValue="value" styleClass="w-36">
+            </p-select>
+        </div>
+
+        <div class="flex flex-col gap-2">
+            <label class="font-medium text-sm">Priority</label>
+            <input pInputText type="number" [ngModel]="pattern.priority"
+                (ngModelChange)="updatePattern({priority: +$event})">
+        </div>
+    </div>
+
+    <div class="flex flex-col gap-2">
+        <label class="font-medium text-sm">Description</label>
+        <input pInputText [ngModel]="pattern.description" (ngModelChange)="updatePattern({description: $event})"
+            placeholder="What does this pattern match?">
+    </div>
+
+    <!-- Pattern Canvas -->
+    <div>
+        <label class="mb-3 block text-base font-semibold">Pattern Structure</label>
+
+        <div class="border-2 border-dashed border-border rounded-lg p-6 min-h-[140px] bg-muted/30">
+            <!-- Empty State -->
+            <div *ngIf="!pattern.tokens || pattern.tokens.length === 0" class="text-center py-8">
+                <div class="text-muted-foreground mb-3">
+                    Add tokens to build your pattern
+                </div>
+                <div class="text-sm text-muted-foreground/60">
+                    Example: <span
+                        class="font-mono bg-background px-2 py-1 rounded text-foreground border">[CHARACTER|Jon]</span>
+                </div>
+            </div>
+
+            <!-- Token List -->
+            <div *ngIf="pattern.tokens && pattern.tokens.length > 0" cdkDropList cdkDropListOrientation="horizontal"
+                class="token-list" (cdkDropListDropped)="drop($event)">
+
+                <div *ngFor="let token of pattern.tokens; let i = index" class="token-chip" cdkDrag>
+                    <app-token-chip [token]="token" [index]="i" (update)="updateToken(token.id, $event)"
+                        (remove)="removeToken(token.id)">
+                    </app-token-chip>
+
+                    <div *cdkDragPlaceholder class="w-16 h-10 bg-muted/50 rounded border border-dashed"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Token Button -->
+        <div class="mt-3">
+            <button pButton label="Add Token" icon="pi pi-plus" class="p-button-outlined w-full"
+                (click)="showAddMenu = true"></button>
+        </div>
+    </div>
+
+    <!-- Preview -->
+    <div *ngIf="examplePattern">
+        <label class="mb-2 block font-medium text-sm">Preview</label>
+        <div class="bg-card border border-border rounded-lg p-4">
+            <div class="text-sm text-muted-foreground mb-1">Your pattern will match:</div>
+            <div class="font-mono text-lg text-foreground">{{ examplePattern }}</div>
+        </div>
+    </div>
+
+    <!-- Test Area -->
+    <div>
+        <label class="mb-2 block font-medium text-sm">Test Pattern</label>
+        <textarea pTextarea [(ngModel)]="testInput" placeholder="Type some text to test your pattern..." rows="4"
+            class="font-mono w-full"></textarea>
+
+        <div class="mt-2">
+            <app-live-match-highlighter [tokens]="pattern.tokens || []" [input]="testInput">
+            </app-live-match-highlighter>
+        </div>
+    </div>
+
+    <!-- Debug / Advanced -->
+    <details class="text-sm group">
+        <summary class="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+            Show compiled regex (advanced)
+        </summary>
+        <pre
+            class="bg-muted p-3 rounded mt-2 text-xs font-mono overflow-x-auto text-foreground border border-border">{{ pattern.compiledPattern || 'No pattern yet' }}</pre>
+    </details>
+
+    <!-- Enable Toggle -->
+    <div class="flex items-center justify-between pt-4 border-t border-border mt-4">
+        <div>
+            <label class="text-base font-medium block">Enabled</label>
+            <p class="text-sm text-muted-foreground">Pattern will be used for detection</p>
+        </div>
+        <p-toggleswitch [ngModel]="pattern.enabled" (ngModelChange)="updatePattern({enabled: $event})"></p-toggleswitch>
+    </div>
+</div>
+
+<p-dialog header="Add Token" [(visible)]="showAddMenu" [modal]="true" [style]="{width: '50vw'}" [draggable]="false"
+    [resizable]="false">
+    <app-add-token-menu (add)="handleAddToken($event)" (addMultiple)="handleAddMultipleTokens($event)"
+        (close)="showAddMenu = false">
+    </app-add-token-menu>
+</p-dialog>

@@ -11,6 +11,7 @@ import { setGoKittService } from './api/highlighter-api';
 import { AppOrchestrator, setAppOrchestrator } from './lib/core/app-orchestrator';
 import { DexieCozoBridge } from './lib/bridge';
 import { cozoDb } from './lib/cozo/db';
+import { ProjectionCacheService } from './lib/services/projection-cache.service';
 
 @Component({
   selector: 'app-root',
@@ -25,6 +26,7 @@ export class AppComponent implements OnInit {
   private goKitt = inject(GoKittService);
   private orchestrator = inject(AppOrchestrator);
   private bridge = inject(DexieCozoBridge);
+  private projectionCache = inject(ProjectionCacheService);
 
   async ngOnInit() {
     // Phase 0: Shell - spinner visible

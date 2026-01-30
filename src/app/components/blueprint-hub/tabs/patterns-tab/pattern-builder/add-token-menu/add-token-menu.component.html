@@ -1,0 +1,172 @@
+<div class="p-4">
+    <div class="text-sm font-semibold mb-3 text-muted-foreground">
+        Choose a token type
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+        <!-- PREFIXES -->
+        <button class="token-btn default" (click)="addPrefix('#')">
+            <span class="text-2xl font-bold mb-1">#</span>
+            <div class="text-xs font-semibold">Hashtag</div>
+            <div class="text-[10px] text-muted-foreground"># prefix</div>
+        </button>
+        <button class="token-btn default" (click)="addPrefix('@')">
+            <span class="text-2xl font-bold mb-1">@</span>
+            <div class="text-xs font-semibold">At Sign</div>
+            <div class="text-[10px] text-muted-foreground">@ prefix</div>
+        </button>
+        <button class="token-btn default" (click)="addPrefix('$')">
+            <span class="text-2xl font-bold mb-1">$</span>
+            <div class="text-xs font-semibold">Dollar</div>
+            <div class="text-[10px] text-muted-foreground">$ prefix</div>
+        </button>
+        <button class="token-btn default" (click)="addPrefix('%')">
+            <span class="text-2xl font-bold mb-1">%</span>
+            <div class="text-xs font-semibold">Percent</div>
+            <div class="text-[10px] text-muted-foreground">% prefix</div>
+        </button>
+        <button class="token-btn default" (click)="addPrefix('~')">
+            <span class="text-2xl font-bold mb-1">~</span>
+            <div class="text-xs font-semibold">Tilde</div>
+            <div class="text-[10px] text-muted-foreground">~ prefix</div>
+        </button>
+        <button class="token-btn default" (click)="addPrefix('*')">
+            <span class="text-2xl font-bold mb-1">*</span>
+            <div class="text-xs font-semibold">Asterisk</div>
+            <div class="text-[10px] text-muted-foreground">* prefix</div>
+        </button>
+
+        <!-- WRAPPERS -->
+        <button class="token-btn default" (click)="addWrapper('square')">
+            <span class="text-xl font-mono mb-1">[ ]</span>
+            <div class="text-xs font-semibold">Square</div>
+            <div class="text-[10px] text-muted-foreground">[content]</div>
+        </button>
+        <button class="token-btn default" (click)="addWrapper('curly')">
+            <span class="text-xl font-mono mb-1">{{'{'}}{{'}'}}</span>
+            <div class="text-xs font-semibold">Curly</div>
+            <div class="text-[10px] text-muted-foreground">{{'{'}}content{{'}'}}</div>
+        </button>
+        <button class="token-btn default" (click)="addWrapper('round')">
+            <span class="text-xl font-mono mb-1">( )</span>
+            <div class="text-xs font-semibold">Round</div>
+            <div class="text-[10px] text-muted-foreground">(content)</div>
+        </button>
+        <button class="token-btn default" (click)="addWrapper('angle')">
+            <span class="text-xl font-mono mb-1">&lt; &gt;</span>
+            <div class="text-xs font-semibold">Angle</div>
+            <div class="text-[10px] text-muted-foreground">&lt;content&gt;</div>
+        </button>
+        <button class="token-btn default" (click)="addWrapper('double-square')">
+            <span class="text-xl font-mono mb-1">[[ ]]</span>
+            <div class="text-xs font-semibold">Double Square</div>
+            <div class="text-[10px] text-muted-foreground">[[wikilink]]</div>
+        </button>
+        <button class="token-btn default" (click)="addWrapper('double-angle')">
+            <span class="text-xl font-mono mb-1">&lt;&lt; &gt;&gt;</span>
+            <div class="text-xs font-semibold">Double Angle</div>
+            <div class="text-[10px] text-muted-foreground">&lt;&lt;backlink&gt;&gt;</div>
+        </button>
+
+        <!-- SEPARATORS -->
+        <button class="token-btn default" (click)="addSeparator('|')">
+            <span class="text-2xl font-mono mb-1">|</span>
+            <div class="text-xs font-semibold">Pipe</div>
+            <div class="text-[10px] text-muted-foreground">| separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator('-')">
+            <span class="text-2xl font-mono mb-1">-</span>
+            <div class="text-xs font-semibold">Dash</div>
+            <div class="text-[10px] text-muted-foreground">- separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator('_')">
+            <span class="text-2xl font-mono mb-1">_</span>
+            <div class="text-xs font-semibold">Underscore</div>
+            <div class="text-[10px] text-muted-foreground">_ separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator('.')">
+            <span class="text-2xl font-mono mb-1">.</span>
+            <div class="text-xs font-semibold">Dot</div>
+            <div class="text-[10px] text-muted-foreground">. separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator(':')">
+            <span class="text-2xl font-mono mb-1">:</span>
+            <div class="text-xs font-semibold">Colon</div>
+            <div class="text-[10px] text-muted-foreground">: separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator('::')">
+            <span class="text-xl font-mono mb-1">::</span>
+            <div class="text-xs font-semibold">Double Colon</div>
+            <div class="text-[10px] text-muted-foreground">:: separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator('->')">
+            <span class="text-xl font-mono mb-1">-&gt;</span>
+            <div class="text-xs font-semibold">Arrow</div>
+            <div class="text-[10px] text-muted-foreground">-&gt; separator</div>
+        </button>
+        <button class="token-btn default" (click)="addSeparator('=>')">
+            <span class="text-xl font-mono mb-1">=&gt;</span>
+            <div class="text-xs font-semibold">Fat Arrow</div>
+            <div class="text-[10px] text-muted-foreground">=&gt; separator</div>
+        </button>
+
+        <!-- CAPTURES -->
+        <button class="token-btn primary" (click)="addCapture('kind')">
+            <p-tag severity="info" value="KIND" styleClass="text-xs mb-1"></p-tag>
+            <div class="text-xs font-semibold">Entity Type</div>
+            <div class="text-[10px] text-muted-foreground">CHARACTER</div>
+        </button>
+        <button class="token-btn primary" (click)="addCapture('label')">
+            <p-tag severity="info" value="LABEL" styleClass="text-xs mb-1"></p-tag>
+            <div class="text-xs font-semibold">Content</div>
+            <div class="text-[10px] text-muted-foreground">Any text</div>
+        </button>
+        <button class="token-btn primary" (click)="addCapture('subtype', true)">
+            <p-tag severity="info" value="SUB" styleClass="text-xs mb-1"></p-tag>
+            <div class="text-xs font-semibold">Subtype</div>
+            <div class="text-[10px] text-muted-foreground">Optional type</div>
+        </button>
+        <button class="token-btn primary" (click)="addCapture('attributes', true)">
+            <p-tag severity="info" value="ATTR" styleClass="text-xs mb-1"></p-tag>
+            <div class="text-xs font-semibold">Attributes</div>
+            <div class="text-[10px] text-muted-foreground">JSON metadata</div>
+        </button>
+
+        <!-- LITERAL -->
+        <button class="token-btn secondary" (click)="addLiteral()">
+            <i class="pi pi-pencil text-xl mb-1"></i>
+            <div class="text-xs font-semibold">Fixed Text</div>
+            <div class="text-[10px] text-muted-foreground">Custom literal</div>
+        </button>
+    </div>
+
+    <!-- TEMPLATES -->
+    <div class="mt-4 pt-4 border-t border-border">
+        <div class="text-sm font-semibold mb-3 text-muted-foreground">
+            Or start with a template
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <button pButton class="p-button-outlined p-button-secondary text-left flex-col items-start h-auto py-3"
+                (click)="addEntityTemplate()">
+                <div class="font-semibold text-foreground">Entity Bracket</div>
+                <div class="text-xs text-muted-foreground font-mono">[KIND|Label]</div>
+            </button>
+            <button pButton class="p-button-outlined p-button-secondary text-left flex-col items-start h-auto py-3"
+                (click)="addHashtagEntityTemplate()">
+                <div class="font-semibold text-foreground">Hashtag Entity</div>
+                <div class="text-xs text-muted-foreground font-mono">#KIND|Label</div>
+            </button>
+            <button pButton class="p-button-outlined p-button-secondary text-left flex-col items-start h-auto py-3"
+                (click)="addWikilinkTemplate()">
+                <div class="font-semibold text-foreground">Wikilink</div>
+                <div class="text-xs text-muted-foreground font-mono">[[Page Title]]</div>
+            </button>
+            <button pButton class="p-button-outlined p-button-secondary text-left flex-col items-start h-auto py-3"
+                (click)="addSimpleTagTemplate()">
+                <div class="font-semibold text-foreground">Simple Tag</div>
+                <div class="text-xs text-muted-foreground font-mono">#tag</div>
+            </button>
+        </div>
+    </div>
+</div>

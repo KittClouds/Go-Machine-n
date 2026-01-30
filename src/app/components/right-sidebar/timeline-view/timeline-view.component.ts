@@ -1,99 +1,272 @@
-import { Component, ChangeDetectionStrategy, ViewEncapsulation } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal, inject, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { NgxTimelineComponent, NgxTimelineEntryComponent } from '@omnedia/ngx-timeline';
+import { LucideAngularModule, Plus, Trash2, Edit3, Lock, Unlock, Link } from 'lucide-angular';
+import { TimelineService } from '../../../lib/services/timeline.service';
+import { ScopeService } from '../../../lib/services/scope.service';
+import { db, TimelineEvent, Entity } from '../../../lib/dexie/db';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-timeline-view',
   standalone: true,
-  imports: [CommonModule, NgxTimelineComponent, NgxTimelineEntryComponent],
+  imports: [CommonModule, FormsModule, NgxTimelineComponent, NgxTimelineEntryComponent, LucideAngularModule],
   template: `
-    <div class="timeline-container p-4">
-      <div class="mb-6 text-center">
+    <div class="timeline-container p-4 h-full flex flex-col">
+      <!-- Header -->
+      <div class="mb-4 text-center">
         <h3 class="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-cyan-400">
           Narrative Timeline
         </h3>
-        <p class="text-xs text-muted-foreground mt-1">Key events in chronological order</p>
+        <p class="text-xs text-muted-foreground mt-1">{{ scopeLabel() }}</p>
       </div>
 
-      <om-timeline
-        [orientation]="'left'"
-        [entriesGap]="'2rem'"
-        [entryGap]="'0.5rem'"
-        [titleGap]="'0.5rem'"
-        [titleMaxWidth]="'100%'"
-        [pathWidth]="'2px'"
-        [pathColor]="'rgba(255,255,255,0.1)'"
-        [gradientColors]="['#2dd4bf', '#06b6d4']"
-      >
-        <!-- Mock Data for Now -->
-        <om-timeline-entry>
-          <ng-template #timelineTitle>
-            <div class="flex items-center justify-between w-full">
-              <span class="text-sm font-bold text-teal-300">The Arrival</span>
-              <span class="text-[10px] text-muted-foreground font-mono">14:00</span>
-            </div>
-          </ng-template>
-          <ng-template #timelineContent>
-             <div class="bg-muted/20 p-3 rounded border border-white/5 text-sm text-muted-foreground">
-               <p class="mb-2 italic">"Frodo arrives at the Prancing Pony, soaking wet and terrified."</p>
-               <div class="flex gap-2">
-                 <span class="text-[10px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded">Frodo</span>
-                 <span class="text-[10px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded">Sam</span>
-               </div>
-             </div>
-          </ng-template>
-        </om-timeline-entry>
+      <!-- Add Event Button -->
+      <button
+        (click)="toggleAddForm()"
+        class="w-full mb-4 py-2 px-3 rounded-lg border border-dashed border-teal-500/30 text-teal-400 text-sm
+               hover:bg-teal-500/10 transition-colors flex items-center justify-center gap-2">
+        <lucide-icon [img]="PlusIcon" class="w-4 h-4"></lucide-icon>
+        Add Event
+      </button>
 
-        <om-timeline-entry>
-          <ng-template #timelineTitle>
-            <div class="flex items-center justify-between w-full">
-              <span class="text-sm font-bold text-teal-300">Strider's Corner</span>
-              <span class="text-[10px] text-muted-foreground font-mono">15:30</span>
-            </div>
-          </ng-template>
-          <ng-template #timelineContent>
-             <div class="bg-muted/20 p-3 rounded border border-white/5 text-sm text-muted-foreground">
-               <p class="mb-2 italic">"A dark figure watches from the shadows. The ring feels heavy."</p>
-               <div class="flex gap-2">
-                 <span class="text-[10px] bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded">Strider</span>
-               </div>
-             </div>
-          </ng-template>
-        </om-timeline-entry>
+      <!-- Inline Add Form -->
+      <div *ngIf="isAddingEvent()" class="mb-4 p-3 bg-muted/20 rounded-lg border border-teal-500/20">
+        <input
+          [(ngModel)]="newEventTitle"
+          placeholder="Event title..."
+          class="w-full mb-2 px-3 py-2 bg-background/50 border border-border rounded text-sm text-foreground"
+          (keydown.enter)="createEvent()"
+        />
+        <textarea
+          [(ngModel)]="newEventDescription"
+          placeholder="What happens? (optional)"
+          rows="2"
+          class="w-full mb-2 px-3 py-2 bg-background/50 border border-border rounded text-sm text-foreground resize-none"
+        ></textarea>
+        <div class="flex gap-2">
+          <button
+            (click)="createEvent()"
+            [disabled]="!newEventTitle.trim()"
+            class="flex-1 py-1.5 px-3 bg-teal-500 text-white text-sm rounded hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed">
+            Add
+          </button>
+          <button
+            (click)="cancelAdd()"
+            class="py-1.5 px-3 bg-muted text-foreground text-sm rounded hover:bg-muted/80">
+            Cancel
+          </button>
+        </div>
+      </div>
 
-        <om-timeline-entry>
-          <ng-template #timelineTitle>
-            <div class="flex items-center justify-between w-full">
-             <span class="text-sm font-bold text-teal-300">Nazgûl Attack</span>
-             <span class="text-[10px] text-muted-foreground font-mono">23:00</span>
-            </div>
-          </ng-template>
-          <ng-template #timelineContent>
-             <div class="bg-muted/20 p-3 rounded border border-white/5 text-sm text-muted-foreground">
-               <p class="mb-2 italic">"Feather pillows are shredded. The enemy knows they are here."</p>
-               <div class="flex gap-2">
-                 <span class="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded">Nazgûl</span>
-               </div>
-             </div>
-          </ng-template>
-        </om-timeline-entry>
+      <!-- Timeline -->
+      <div class="flex-1 overflow-y-auto" *ngIf="events().length > 0">
+        <om-timeline
+          [orientation]="'left'"
+          [entriesGap]="'1.5rem'"
+          [entryGap]="'0.5rem'"
+          [titleGap]="'0.5rem'"
+          [titleMaxWidth]="'100%'"
+          [pathWidth]="'2px'"
+          [pathColor]="'rgba(255,255,255,0.1)'"
+          [gradientColors]="['#2dd4bf', '#06b6d4']"
+        >
+          <om-timeline-entry *ngFor="let event of events(); trackBy: trackEvent">
+            <ng-template #timelineTitle>
+              <div class="flex items-center justify-between w-full group">
+                <span class="text-sm font-bold text-teal-300">{{ event.title }}</span>
+                <div class="flex items-center gap-1">
+                  <span *ngIf="event.displayTime" class="text-[10px] text-muted-foreground font-mono">{{ event.displayTime }}</span>
+                  <button
+                    (click)="deleteEvent(event.id)"
+                    class="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded transition-opacity">
+                    <lucide-icon [img]="TrashIcon" class="w-3 h-3 text-red-400"></lucide-icon>
+                  </button>
+                </div>
+              </div>
+            </ng-template>
+            <ng-template #timelineContent>
+              <div class="bg-muted/20 p-3 rounded border border-white/5 text-sm text-muted-foreground">
+                <p *ngIf="event.description" class="mb-2 italic">"{{ event.description }}"</p>
+                <p *ngIf="!event.description" class="mb-2 text-muted-foreground/50 text-xs">No description</p>
+                
+                <!-- Entity Chips -->
+                <div class="flex flex-wrap gap-1.5" *ngIf="event.entityIds.length > 0">
+                  <span
+                    *ngFor="let entityId of event.entityIds"
+                    class="text-[10px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded cursor-pointer hover:bg-teal-500/20"
+                    (click)="openEntity(entityId)">
+                    {{ getEntityLabel(entityId) }}
+                  </span>
+                </div>
 
-      </om-timeline>
+                <!-- Note Link -->
+                <button
+                  *ngIf="event.linkedNoteId"
+                  (click)="openNote(event.linkedNoteId)"
+                  class="mt-2 text-[10px] text-teal-400 hover:underline flex items-center gap-1">
+                  <lucide-icon [img]="LinkIcon" class="w-3 h-3"></lucide-icon>
+                  Open linked note
+                </button>
+              </div>
+            </ng-template>
+          </om-timeline-entry>
+        </om-timeline>
+      </div>
+
+      <!-- Empty State -->
+      <div *ngIf="events().length === 0 && !isAddingEvent()" class="flex-1 flex flex-col items-center justify-center text-center">
+        <div class="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
+          <svg class="w-8 h-8 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <p class="text-sm text-muted-foreground mb-1">No events yet</p>
+        <p class="text-xs text-muted-foreground/60">Click "Add Event" to start building your timeline</p>
+      </div>
     </div>
   `,
   styles: [`
     :host {
       display: block;
       height: 100%;
-      overflow-y: auto;
+      overflow: hidden;
     }
     
-    /* Override timeline styles for sidebar context */
     ::ng-deep om-timeline {
-        width: 100%;
+      width: 100%;
     }
   `],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  encapsulation: ViewEncapsulation.None
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class TimelineViewComponent { }
+export class TimelineViewComponent implements OnInit, OnDestroy {
+  private timelineService = inject(TimelineService);
+  private scopeService = inject(ScopeService);
+
+  // Icons
+  PlusIcon = Plus;
+  TrashIcon = Trash2;
+  EditIcon = Edit3;
+  LockIcon = Lock;
+  UnlockIcon = Unlock;
+  LinkIcon = Link;
+
+  // State
+  events = signal<TimelineEvent[]>([]);
+  isAddingEvent = signal(false);
+  newEventTitle = '';
+  newEventDescription = '';
+
+  // Entity cache for display names
+  private entityCache = new Map<string, string>();
+
+  // Subscriptions
+  private eventsSub?: Subscription;
+
+  scopeLabel = computed(() => {
+    const scope = this.scopeService.activeScope();
+    if (scope.id === 'vault:global') return 'All narratives';
+    if (scope.type === 'narrative') return 'Current narrative';
+    return 'Scope: ' + scope.type;
+  });
+
+  ngOnInit() {
+    this.loadEvents();
+  }
+
+  ngOnDestroy() {
+    this.eventsSub?.unsubscribe();
+  }
+
+  private loadEvents() {
+    const scope = this.scopeService.activeScope();
+
+    // Subscribe to events based on scope
+    if (scope.id === 'vault:global') {
+      this.eventsSub = this.timelineService.getAllEvents$().subscribe(events => {
+        this.events.set(events);
+        this.cacheEntityLabels(events);
+      });
+    } else if (scope.narrativeId) {
+      this.eventsSub = this.timelineService.getEventsForNarrative$(scope.narrativeId).subscribe(events => {
+        this.events.set(events);
+        this.cacheEntityLabels(events);
+      });
+    } else {
+      // Fallback: show all
+      this.eventsSub = this.timelineService.getAllEvents$().subscribe(events => {
+        this.events.set(events);
+        this.cacheEntityLabels(events);
+      });
+    }
+  }
+
+  private async cacheEntityLabels(events: TimelineEvent[]) {
+    const allIds = new Set<string>();
+    events.forEach(e => e.entityIds.forEach(id => allIds.add(id)));
+
+    for (const id of allIds) {
+      if (!this.entityCache.has(id)) {
+        const entity = await db.entities.get(id);
+        this.entityCache.set(id, entity?.label || id);
+      }
+    }
+  }
+
+  getEntityLabel(entityId: string): string {
+    return this.entityCache.get(entityId) || entityId.slice(0, 8);
+  }
+
+  toggleAddForm() {
+    this.isAddingEvent.set(!this.isAddingEvent());
+    if (!this.isAddingEvent()) {
+      this.resetForm();
+    }
+  }
+
+  cancelAdd() {
+    this.isAddingEvent.set(false);
+    this.resetForm();
+  }
+
+  private resetForm() {
+    this.newEventTitle = '';
+    this.newEventDescription = '';
+  }
+
+  async createEvent() {
+    if (!this.newEventTitle.trim()) return;
+
+    const scope = this.scopeService.activeScope();
+    const narrativeId = scope.narrativeId || scope.id;
+
+    await this.timelineService.createEvent(
+      narrativeId,
+      this.newEventTitle.trim(),
+      this.newEventDescription.trim()
+    );
+
+    this.isAddingEvent.set(false);
+    this.resetForm();
+  }
+
+  async deleteEvent(id: string) {
+    await this.timelineService.deleteEvent(id);
+  }
+
+  openEntity(entityId: string) {
+    // TODO: Open entity in sidebar or navigate to entity note
+    console.log('[Timeline] Open entity:', entityId);
+  }
+
+  openNote(noteId: string) {
+    // TODO: Navigate to note
+    console.log('[Timeline] Open note:', noteId);
+  }
+
+  trackEvent(index: number, event: TimelineEvent): string {
+    return event.id;
+  }
+}

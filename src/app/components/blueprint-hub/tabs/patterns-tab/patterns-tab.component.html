@@ -1,0 +1,90 @@
+<div class="h-full flex flex-col bg-background text-foreground">
+    <!-- List View -->
+    <ng-container *ngIf="view() === 'list'">
+        <!-- Header -->
+        <div class="flex items-center justify-between p-4 border-b border-border">
+            <div class="flex items-center gap-3">
+                <div>
+                    <h2 class="text-lg font-semibold">Pattern Manager</h2>
+                    <p class="text-sm text-muted-foreground">
+                        {{ stats().total }} patterns ({{ stats().enabled }} enabled, {{ stats().custom }} custom)
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button pButton label="Reset to Defaults" icon="pi pi-refresh" class="p-button-outlined p-button-sm"
+                    (click)="handleReset()"></button>
+                <button pButton label="New Pattern" icon="pi pi-plus" class="p-button-sm"
+                    (click)="handleCreateNew()"></button>
+            </div>
+        </div>
+
+        <!-- Pattern List -->
+        <div class="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            <div class="space-y-6">
+                <div *ngFor="let group of groupedPatterns() | keyvalue" class="mb-6">
+                    <h3 class="text-sm font-medium text-muted-foreground mb-3 capitalize">
+                        {{ group.key }} Patterns
+                    </h3>
+                    <div class="grid gap-3">
+                        <div *ngFor="let pattern of group.value"
+                            class="p-4 rounded-lg border border-border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:shadow-md"
+                            [class.opacity-60]="!pattern.enabled">
+
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-medium text-sm">{{ pattern.name }}</span>
+
+                                    <!-- Kind Badge -->
+                                    <span
+                                        [class]="'text-xs px-2 py-0.5 rounded-full border ' + kindColors[pattern.kind]">
+                                        {{ pattern.kind }}
+                                    </span>
+
+                                    <!-- Built-in Badge -->
+                                    <span *ngIf="pattern.isBuiltIn"
+                                        class="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
+                                        Built-in
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                    <!-- Toggle Switch -->
+                                    <p-toggleswitch [(ngModel)]="pattern.enabled"
+                                        (onChange)="handleToggle(pattern.id, pattern.enabled)"></p-toggleswitch>
+
+                                    <!-- Actions Menu -->
+                                    <button pButton icon="pi pi-ellipsis-v"
+                                        class="p-button-text p-button-rounded p-button-sm w-8 h-8"
+                                        (click)="menu.toggle($event)"></button>
+                                    <p-menu #menu [model]="getMenuItems(pattern)" [popup]="true"
+                                        appendTo="body"></p-menu>
+                                </div>
+                            </div>
+
+                            <p *ngIf="pattern.description" class="text-xs text-muted-foreground mb-3">
+                                {{ pattern.description }}
+                            </p>
+
+                            <div class="flex items-center gap-4 text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                                <span>Priority: {{ pattern.priority }}</span>
+                                <span class="font-mono truncate max-w-[300px]" title="{{ pattern.pattern }}">
+                                    {{ pattern.pattern }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </ng-container>
+
+    <!-- Editor View -->
+    <ng-container *ngIf="view() === 'editor' && editingPattern()">
+        <app-pattern-editor [pattern]="editingPattern()!" [isNew]="isCreating()" (save)="handleSave($event)"
+            (cancel)="handleCancelEdit()">
+        </app-pattern-editor>
+    </ng-container>
+</div>
+
+<p-confirmdialog></p-confirmdialog>

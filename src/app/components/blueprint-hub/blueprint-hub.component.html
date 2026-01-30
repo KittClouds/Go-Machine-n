@@ -28,6 +28,7 @@
         <ng-container [ngSwitch]="activeTab">
             <app-graph-tab *ngSwitchCase="'graph'" class="h-full w-full block"></app-graph-tab>
             <app-theme-tab *ngSwitchCase="'theme'" class="h-full w-full block"></app-theme-tab>
+            <app-patterns-tab *ngSwitchCase="'patterns'" class="h-full w-full block"></app-patterns-tab>
 
             <div *ngSwitchDefault class="flex items-center justify-center h-full text-muted-foreground bg-muted/5">
                 <div

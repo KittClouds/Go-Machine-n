@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/kittclouds/gokitt/pkg/dafsa"
+	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/scanner/chunker"
 	"github.com/kittclouds/gokitt/pkg/scanner/conductor/helpers"
 	"github.com/kittclouds/gokitt/pkg/scanner/discovery"
@@ -45,7 +45,7 @@ type ResolvedReference struct {
 // Conductor manages the scanning pipeline
 type Conductor struct {
 	syntaxScanner    *syntax.SyntaxScanner
-	implicitScanner  *dafsa.RuntimeDictionary
+	implicitScanner  *implicitmatcher.RuntimeDictionary
 	chunker          *chunker.Chunker
 	narrativeMatcher *narrative.NarrativeMatcher
 	resolver         *resolver.Resolver
@@ -73,12 +73,12 @@ func New() (*Conductor, error) {
 }
 
 // SetDictionary loads the implicit scanner dictionary
-func (c *Conductor) SetDictionary(dict *dafsa.RuntimeDictionary) {
+func (c *Conductor) SetDictionary(dict *implicitmatcher.RuntimeDictionary) {
 	c.implicitScanner = dict
 }
 
 // GetDictionary returns the Aho-Corasick implicit scanner
-func (c *Conductor) GetDictionary() *dafsa.RuntimeDictionary {
+func (c *Conductor) GetDictionary() *implicitmatcher.RuntimeDictionary {
 	return c.implicitScanner
 }
 
@@ -134,7 +134,7 @@ func (c *Conductor) Scan(text string) ScanResult {
 				if subjChunk != nil && objChunk != nil {
 					subjKind := c.resolveKind(subjText)
 					// Only propagate from known kinds for now, or assume Character if Proper
-					if subjKind != dafsa.KindOther {
+					if subjKind != implicitmatcher.KindOther {
 						c.discoveryEngine.ObserveRelation(subjKind, match, objText)
 					}
 				}
@@ -215,13 +215,13 @@ func (c *Conductor) registerExplicitEntities(matches []syntax.SyntaxMatch) {
 			// Also tell Discovery about it (as PROMOTED + Known Kind)
 			c.discoveryEngine.ObserveToken(m.Label)
 			// Force set kind in registry
-			kind := dafsa.ParseKind(m.EntityKind)
+			kind := implicitmatcher.ParseKind(m.EntityKind)
 			c.discoveryEngine.Registry.ProposeInference(m.Label, kind)
 		}
 	}
 }
 
-func (c *Conductor) resolveKind(text string) dafsa.EntityKind {
+func (c *Conductor) resolveKind(text string) implicitmatcher.EntityKind {
 	// 1. Check Resolver/Explicit
 	// (Resolver tracks EntityMetadata but not DAFSA Kind directly, needs alignment)
 	// For now, assume Character if Proper Noun and unknown
@@ -232,7 +232,7 @@ func (c *Conductor) resolveKind(text string) dafsa.EntityKind {
 		return *stats.InferredKind
 	}
 
-	return dafsa.KindCharacter // Aggressive default for demo
+	return implicitmatcher.KindCharacter // Aggressive default for demo
 }
 
 // GetMatcher returns the narrative matcher for external use (Projection)
@@ -265,7 +265,7 @@ func (c *Conductor) ScanDiscovery(text string) {
 
 // SeedDiscovery pre-populates the discovery registry with known entities
 // This gives ScanText promoted sources to work with
-func (c *Conductor) SeedDiscovery(entities []dafsa.RegisteredEntity) {
+func (c *Conductor) SeedDiscovery(entities []implicitmatcher.RegisteredEntity) {
 	for _, e := range entities {
 		// Add token and force promotion
 		c.discoveryEngine.Registry.AddToken(e.Label)
@@ -273,16 +273,16 @@ func (c *Conductor) SeedDiscovery(entities []dafsa.RegisteredEntity) {
 		if stats != nil {
 			stats.Status = discovery.StatusPromoted
 			// Parse Kind from interface{}
-			var kind dafsa.EntityKind
+			var kind implicitmatcher.EntityKind
 			switch v := e.Kind.(type) {
 			case string:
-				kind = dafsa.ParseKind(v)
+				kind = implicitmatcher.ParseKind(v)
 			case float64:
-				kind = dafsa.EntityKind(int(v))
-			case dafsa.EntityKind:
+				kind = implicitmatcher.EntityKind(int(v))
+			case implicitmatcher.EntityKind:
 				kind = v
 			default:
-				kind = dafsa.KindOther
+				kind = implicitmatcher.KindOther
 			}
 			stats.InferredKind = &kind
 		}

@@ -3,7 +3,7 @@ package discovery
 import (
 	"testing"
 
-	"github.com/kittclouds/gokitt/pkg/dafsa"
+	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/scanner/narrative"
 )
 
@@ -23,7 +23,7 @@ func TestDiscoveryEngine_ScanText(t *testing.T) {
 	engine.Registry.AddToken("Luffy")
 	stats := engine.Registry.GetStats("Luffy")
 	stats.Status = StatusPromoted
-	kind := dafsa.KindCharacter
+	kind := implicitmatcher.KindCharacter
 	stats.InferredKind = &kind
 
 	// 4. Run Scan: "Luffy fought Kaido"
@@ -43,7 +43,7 @@ func TestDiscoveryEngine_ScanText(t *testing.T) {
 
 	if kaidoStats.InferredKind == nil {
 		t.Error("Expected 'Kaido' to have an inferred kind")
-	} else if *kaidoStats.InferredKind != dafsa.KindCharacter {
+	} else if *kaidoStats.InferredKind != implicitmatcher.KindCharacter {
 		t.Errorf("Expected 'Kaido' to be inferred as Character, got %v", *kaidoStats.InferredKind)
 	}
 }

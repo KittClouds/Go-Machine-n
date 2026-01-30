@@ -160,3 +160,16 @@ function matchScore(stored: string, current: string): number {
     // Return match ratio (0-100)
     return Math.round((matches / Math.max(stored.length, current.length)) * 100);
 }
+
+/**
+ * Compute a deterministic hash for a selector to allow O(1) lookups
+ * Uses a simple fast hashing algorithm (djb2-ish variant) for the combined string
+ */
+export function computeSelectorHash(selector: TextQuoteSelector): string {
+    const str = `${selector.exact}|${selector.prefix}|${selector.suffix}`;
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash) + str.charCodeAt(i); /* hash * 33 + c */
+    }
+    return (hash >>> 0).toString(16); // Convert to unsigned hex
+}

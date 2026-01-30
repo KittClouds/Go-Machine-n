@@ -19,6 +19,7 @@
 
 export interface RaptorNode {
     nodeId: string;
+    narrativeId: string;    // Scope filter for vault/narrative
     level: number;
     embedding: Float32Array | number[];
     payload: RaptorPayload; // JSON string
@@ -52,6 +53,7 @@ export interface RaptorConfig {
 export const RAPTOR_NODES_SCHEMA = `
 :create raptor_nodes {
     node_id: String =>
+    narrative_id: String,
     level: Int,
     embedding: [Float],
     payload: Json,
@@ -75,12 +77,13 @@ export const RAPTOR_CONFIG_SCHEMA = `
 
 /**
  * HNSW Index for fast vector retrieval
+ * Using 256d for MDBR Leaf model (default, fast).
  * We index ALL levels to support "Collapsed" retrieval mode.
- * We can filter by 'level' if we only want leaves or specific tiers.
+ * We can filter by 'level' or 'narrative_id' for scoped/leaf-only queries.
  */
 export const RAPTOR_HNSW_INDEX = `
 ::hnsw create raptor_nodes:idx {
-    dim: 384,
+    dim: 256,
     m: 32,
     dtype: F32,
     fields: [embedding],
@@ -98,24 +101,31 @@ export const RAPTOR_QUERIES = {
 
     /** Upsert a batch of nodes */
     upsertNodes: `
-    ?[node_id, level, embedding, payload, children, created_at] <- $nodes
+    ?[node_id, narrative_id, level, embedding, payload, children, created_at] <- $nodes
     :put raptor_nodes {
-        node_id => level, embedding, payload, children, created_at
+        node_id => narrative_id, level, embedding, payload, children, created_at
     }
     `,
 
     /** Get a node by ID */
     getNode: `
-    ?[node_id, level, embedding, payload, children] :=
-        *raptor_nodes{node_id, level, embedding, payload, children},
+    ?[node_id, narrative_id, level, embedding, payload, children] :=
+        *raptor_nodes{node_id, narrative_id, level, embedding, payload, children},
         node_id == $node_id
     `,
 
     /** Get all nodes at a specific level */
     getNodesByLevel: `
-    ?[node_id, embedding, payload, children] :=
-        *raptor_nodes{node_id, level, embedding, payload, children},
+    ?[node_id, narrative_id, embedding, payload, children] :=
+        *raptor_nodes{node_id, narrative_id, level, embedding, payload, children},
         level == $level
+    `,
+
+    /** Get all nodes for a narrative */
+    getNodesByNarrative: `
+    ?[node_id, level, embedding, payload, children] :=
+        *raptor_nodes{node_id, narrative_id, level, embedding, payload, children},
+        narrative_id == $narrative_id
     `,
 
     /** 
@@ -149,6 +159,17 @@ export const RAPTOR_QUERIES = {
         *raptor_nodes{node_id, level, payload}
     `,
 
+    /** 
+     * HNSW Search (Collapsed Mode, Scoped by Narrative)
+     * Search within a specific narrative vault
+     */
+    searchCollapsedScoped: `
+    ?[node_id, distance, level, payload] := 
+        ~raptor_nodes:idx{ node_id | query: $query, k: $k, ef: $ef },
+        *raptor_nodes{node_id, narrative_id, level, payload},
+        narrative_id == $narrative_id
+    `,
+
     /**
      * HNSW Search (Leaf Only)
      * For when you only want actual text chunks
@@ -157,6 +178,17 @@ export const RAPTOR_QUERIES = {
     ?[node_id, distance, payload] := 
         ~raptor_nodes:idx{ node_id | query: $query, k: $k, ef: $ef, filter: level == 0 },
         *raptor_nodes{node_id, payload}
+    `,
+
+    /**
+     * HNSW Search (Leaf Only, Scoped by Narrative)
+     * Scoped chunk search within a narrative vault
+     */
+    searchLeavesScoped: `
+    ?[node_id, distance, payload] := 
+        ~raptor_nodes:idx{ node_id | query: $query, k: $k, ef: $ef, filter: level == 0 },
+        *raptor_nodes{node_id, narrative_id, payload},
+        narrative_id == $narrative_id
     `,
 
     // --- Config Operations ---

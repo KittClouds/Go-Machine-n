@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/kittclouds/gokitt/pkg/dafsa"
+	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/scanner/narrative"
 )
 
@@ -30,12 +30,12 @@ func (e *DiscoveryEngine) ObserveToken(token string) {
 }
 
 // ObserveRelation records a relation and potentially infers target type
-func (e *DiscoveryEngine) ObserveRelation(sourceKind dafsa.EntityKind, verbMatch *narrative.VerbMatch, targetToken string) {
+func (e *DiscoveryEngine) ObserveRelation(sourceKind implicitmatcher.EntityKind, verbMatch *narrative.VerbMatch, targetToken string) {
 	// 1. Infer target kind based on source + event
 	inferredKind := e.Scanner.InferTarget(sourceKind, verbMatch.EventClass)
 
 	// 2. Propose inference to registry
-	if inferredKind != dafsa.KindOther {
+	if inferredKind != implicitmatcher.KindOther {
 		e.Registry.ProposeInference(targetToken, inferredKind)
 	}
 }

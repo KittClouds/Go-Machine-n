@@ -4,11 +4,12 @@ import { BlueprintHubService } from './blueprint-hub.service';
 import { ButtonModule } from 'primeng/button';
 import { GraphTabComponent } from './tabs/graph-tab/graph-tab.component';
 import { ThemeTabComponent } from './tabs/theme-tab/theme-tab.component';
+import { PatternsTabComponent } from './tabs/patterns-tab/patterns-tab.component';
 
 @Component({
     selector: 'app-blueprint-hub',
     standalone: true,
-    imports: [CommonModule, ButtonModule, GraphTabComponent, ThemeTabComponent],
+    imports: [CommonModule, ButtonModule, GraphTabComponent, ThemeTabComponent, PatternsTabComponent],
     templateUrl: './blueprint-hub.component.html',
     styleUrl: './blueprint-hub.component.css'
 })

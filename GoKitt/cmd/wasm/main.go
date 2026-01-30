@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/hack-pad/hackpadfs/indexeddb"
-	"github.com/kittclouds/gokitt/pkg/dafsa"
 	"github.com/kittclouds/gokitt/pkg/hierarchy"
+	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/reality/builder"
 	"github.com/kittclouds/gokitt/pkg/reality/pcst"
 	"github.com/kittclouds/gokitt/pkg/reality/projection"
@@ -321,19 +321,19 @@ func initialize(this js.Value, args []js.Value) interface{} {
 	// Build Aho-Corasick dictionary from entities if provided
 	if len(args) > 0 && args[0].String() != "" && args[0].String() != "[]" {
 		// Use pointers to ensure custom UnmarshalJSON is called
-		var entityPtrs []*dafsa.RegisteredEntity
+		var entityPtrs []*implicitmatcher.RegisteredEntity
 		if err := json.Unmarshal([]byte(args[0].String()), &entityPtrs); err != nil {
 			return errorResult("invalid entities json: " + err.Error())
 		}
 
 		if len(entityPtrs) > 0 {
 			// Convert back to value numbers for Compile
-			entities := make([]dafsa.RegisteredEntity, len(entityPtrs))
+			entities := make([]implicitmatcher.RegisteredEntity, len(entityPtrs))
 			for i, e := range entityPtrs {
 				entities[i] = *e
 			}
 
-			dict, err := dafsa.Compile(entities)
+			dict, err := implicitmatcher.Compile(entities)
 			if err != nil {
 				return errorResult("aho-corasick compile: " + err.Error())
 			}
@@ -410,7 +410,7 @@ func isWordChar(b byte) bool {
 }
 
 // getEntityIDs extracts IDs from EntityInfo slice
-func getEntityIDs(entities []*dafsa.EntityInfo) []string {
+func getEntityIDs(entities []*implicitmatcher.EntityInfo) []string {
 	ids := make([]string, len(entities))
 	for i, e := range entities {
 		ids[i] = e.ID

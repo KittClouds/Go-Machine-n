@@ -1,0 +1,75 @@
+<div [class]="'token-chip ' + chipsClass">
+    <!-- Drag Handle -->
+    <i class="pi pi-bars text-muted-foreground mr-2 cursor-grab"></i>
+
+    <!-- Content -->
+    <div class="flex items-center gap-2">
+        <!-- Prefix -->
+        <span *ngIf="token.type === 'prefix'" class="font-mono text-lg font-bold">
+            {{ asString }}
+        </span>
+
+        <!-- Wrapper -->
+        <span *ngIf="token.type === 'wrapper'" class="font-mono text-base text-muted-foreground">
+            {{ wrapperValue }}
+        </span>
+
+        <!-- Separator -->
+        <span *ngIf="token.type === 'separator'" class="font-mono text-lg font-semibold text-primary">
+            {{ asString }}
+        </span>
+
+        <!-- Capture -->
+        <ng-container *ngIf="token.type === 'capture'">
+            <p-tag [severity]="token.captureAs === 'kind' ? 'info' : 'secondary'"
+                [value]="(token.captureAs?.toUpperCase() || 'CAPTURE')"></p-tag>
+        </ng-container>
+
+        <!-- Literal -->
+        <ng-container *ngIf="token.type === 'literal'">
+            <span class="font-semibold cursor-pointer hover:text-primary" (click)="toggleLiteral($event)">
+                "{{ asString }}"
+            </span>
+            <p-popover #opLiteral>
+                <div class="p-2 w-48">
+                    <input pInputText [ngModel]="asString" (ngModelChange)="update.emit({value: $event})"
+                        (keydown.enter)="hideLiteral()" placeholder="Value" autofocus class="w-full">
+                </div>
+            </p-popover>
+        </ng-container>
+
+        <!-- Optional Badge -->
+        <p-tag *ngIf="token.optional" severity="warn" value="optional" styleClass="text-[10px] h-4 px-1"></p-tag>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center gap-1 ml-2 pl-2 border-l border-border/50">
+        <!-- Capture Settings -->
+        <ng-container *ngIf="token.type === 'capture'">
+            <button pButton icon="pi pi-cog" class="p-button-text p-button-sm p-button-rounded h-6 w-6"
+                (click)="toggleCapture($event)"></button>
+
+            <p-popover #opCapture>
+                <div class="p-3 w-64 space-y-3">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs font-medium">Capture As</label>
+                        <p-select [options]="captureOptions" [ngModel]="token.captureAs"
+                            (ngModelChange)="updateCaptureAs($event)" optionLabel="label" optionValue="value"
+                            appendTo="body" styleClass="w-full">
+                        </p-select>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs">Optional</label>
+                        <p-toggleswitch [ngModel]="token.optional"
+                            (ngModelChange)="update.emit({optional: $event})"></p-toggleswitch>
+                    </div>
+                </div>
+            </p-popover>
+        </ng-container>
+
+        <!-- Remove -->
+        <button pButton icon="pi pi-times" class="p-button-text p-button-danger p-button-rounded h-6 w-6"
+            (click)="remove.emit()"></button>
+    </div>
+</div>

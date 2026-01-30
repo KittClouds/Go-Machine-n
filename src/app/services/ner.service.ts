@@ -1,6 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { GoKittService } from './gokitt.service';
 import { NoteEditorStore } from '../lib/store/note-editor.store';
+import { smartGraphRegistry } from '../lib/registry';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface NerSuggestion {
@@ -57,10 +58,21 @@ export class NerService {
                 context: s.snippet
             }));
 
-            console.log(`[NerService] Mapped ${mapped.length} suggestions:`, mapped);
+            // Filter out known entities (Registry check + Status check)
+            // Go Status: 0=Watching, 1=Promoted, 2=Ignored
+            const filtered = mapped.filter(s => {
+                const isKnown = smartGraphRegistry.isRegisteredEntity(s.label);
+                // Also check raw status if available (s.status === 1 is Promoted)
+                const raw = rawSuggestions.find((r: any) => (r.token || r.Token) === s.label);
+                const isPromoted = raw && (raw.status === 1 || raw.Status === 1);
+
+                return !isKnown && !isPromoted;
+            });
+
+            console.log(`[NerService] Mapped ${mapped.length} suggestions, Kept ${filtered.length} (filtered known)`);
 
             // Filter out extremely low confidence if needed
-            this.suggestions.set(mapped);
+            this.suggestions.set(filtered);
         } catch (e) {
             console.error('[NerService] Analysis failed', e);
             this.suggestions.set([]);

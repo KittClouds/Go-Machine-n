@@ -130,6 +130,7 @@ export interface Span {
 
     // Quote selector (resilient path)
     selector: TextQuoteSelector;
+    contentHash: string;               // Hash of selector for O(1) resolution
 
     // Provenance
     createdBy: 'user' | 'scanner' | 'import';
@@ -216,6 +217,34 @@ export interface Claim {
     sourceNoteId: string;              // Document where claim was extracted
     confidence: number;
     extractedBy: 'user' | 'scanner' | 'llm';
+
+    createdAt: number;
+    updatedAt: number;
+}
+
+/**
+ * TimelineEvent - A scene/beat in the narrative timeline.
+ * Acts as a scene manager for tracking story progression.
+ */
+export interface TimelineEvent {
+    id: string;
+    narrativeId: string;            // Which narrative vault this belongs to
+
+    // Content
+    title: string;                  // "The Arrival", "Strider's Corner"
+    description: string;            // Scene summary / beat
+
+    // Timeline position
+    order: number;                  // Global sort order within narrative
+    displayTime?: string;           // Human readable: "14:00", "Dawn", "Third Age 3018"
+
+    // References
+    entityIds: string[];            // Characters/locations involved
+    linkedNoteId?: string;          // Optional: Jump to this note for details
+
+    // Metadata
+    color?: string;                 // Visual accent
+    status: 'draft' | 'locked';     // Can lock events to prevent edits
 
     createdAt: number;
     updatedAt: number;
@@ -458,6 +487,9 @@ export class CrepeDatabase extends Dexie {
     spanMentions!: Table<SpanMention>;
     claims!: Table<Claim>;
 
+    // Timeline Codex (v5)
+    timelineEvents!: Table<TimelineEvent>;
+
     constructor() {
         super('CrepeNotes');
 
@@ -518,7 +550,8 @@ export class CrepeDatabase extends Dexie {
         // Only need to specify NEW tables - existing ones are inherited
         this.version(4).stores({
             // NEW: Span - immutable fact with Web Annotation selectors
-            spans: 'id, worldId, noteId, narrativeId, status, createdAt, [noteId+status]',
+            // Indexed by content hash (O(1)) and position range (O(log n))
+            spans: 'id, worldId, noteId, narrativeId, status, createdAt, contentHash, [noteId+status], [worldId+start+end]',
 
             // NEW: Wormhole - binding contracts between spans
             wormholes: 'id, srcSpanId, dstSpanId, mode, wormholeType, [srcSpanId+dstSpanId]',
@@ -528,6 +561,12 @@ export class CrepeDatabase extends Dexie {
 
             // NEW: Claim - SVO quads referencing spans
             claims: 'id, worldId, narrativeId, subjectSpanId, objectSpanId, verb, sourceNoteId, [subjectEntityId+verb+objectEntityId]'
+        });
+
+        // Version 5: Timeline Codex
+        this.version(5).stores({
+            // NEW: TimelineEvent - scene/beat manager for narrative
+            timelineEvents: 'id, narrativeId, order, status, [narrativeId+order]'
         });
     }
 }
