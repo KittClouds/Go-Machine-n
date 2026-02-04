@@ -11,9 +11,10 @@ import { CulturesComponent } from './tabs/cultures.component'; // Updated
 import { MagicSystemComponent } from './tabs/magic-system.component';
 import { ReligionComponent } from './tabs/religion.component';
 import { PoliticsComponent } from './tabs/politics.component';
-import { ArtsComponent } from './tabs/arts.component';
 
-export type WorldBuildingTabId = 'overview' | 'geography' | 'culture' | 'magic' | 'religion' | 'politics' | 'arts';
+import { MysteryComponent } from './tabs/mystery.component';
+
+export type WorldBuildingTabId = 'overview' | 'geography' | 'culture' | 'magic' | 'religion' | 'politics' | 'mystery';
 
 interface TabDef {
     id: WorldBuildingTabId;
@@ -33,7 +34,7 @@ interface TabDef {
         MagicSystemComponent,
         ReligionComponent,
         PoliticsComponent,
-        ArtsComponent
+        MysteryComponent
     ],
     templateUrl: './worldbuilding-tab.component.html',
     styles: [`
@@ -50,7 +51,7 @@ export class WorldbuildingTabComponent implements OnInit {
         { id: 'magic', label: 'Magic', icon: 'pi pi-bolt' },
         { id: 'religion', label: 'Religion', icon: 'pi pi-book' },
         { id: 'politics', label: 'Politics', icon: 'pi pi-sitemap' },
-        { id: 'arts', label: 'Arts', icon: 'pi pi-palette' },
+        { id: 'mystery', label: 'Mystery', icon: 'pi pi-question-circle' },
     ];
 
     // State

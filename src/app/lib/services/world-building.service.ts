@@ -78,7 +78,191 @@ export interface Culture {
 export interface CultureOverride {
     status: 'Stable' | 'Reforming' | 'Fragmenting' | 'Occupied' | 'Extinct';
     changelog: string; // "What changed since last act?"
-    // Maybe allow overriding specific fields later if needed
+}
+
+// ===================================
+// POWER SYSTEM TYPES (Magic & Tech)
+// ===================================
+
+export interface PowerCapability {
+    id: string;
+    name: string;
+    type: 'spell' | 'tech' | 'artifact' | 'hybrid';
+    description: string;
+    cost: string[];     // e.g. ["Mana", "Health", "Fuel"]
+    risks: string[];    // e.g. ["Corruption", "Explosion"]
+    prerequisites: string[]; // IDs of other capabilities
+    position?: { x: number, y: number }; // For the visual Graph/Map
+}
+
+export interface PowerSystem {
+    id: string;
+    name: string;
+    type: 'magic' | 'tech' | 'hybrid';
+    description: string;
+    rules: {
+        limits: string;
+        costs: string;
+        failureModes: string;
+    };
+    capabilities: PowerCapability[];
+}
+
+export interface PowerProgression {
+    status: 'unknown' | 'rumored' | 'known' | 'unlocked' | 'forbidden';
+    note?: string; // Optional context for this act
+}
+
+// ===================================
+// RELIGION TYPES
+// ===================================
+
+export interface Deity {
+    id: string;
+    name: string;
+    domains: string[]; // e.g., "War", "Love"
+    symbol: string;
+    description: string;
+}
+
+export interface MythBlock {
+    id: string;
+    title: string;
+    content: string;
+    type: 'creation' | 'prophecy' | 'hero' | 'cautionary' | 'endtimes';
+}
+
+export interface Sect {
+    id: string;
+    name: string;
+    description: string;
+    divergence: string; // Core disagreement
+}
+
+export interface Religion {
+    id: string;
+    name: string;
+    // e.g. "Monotheistic", "Polytheistic", "Animist", etc.
+    type: string;
+    description: string;
+
+    // Fast Facts
+    symbols: string[];
+    adjectives: string[]; // e.g. "Orthodox", "Mystical"
+
+    // Core Beliefs
+    cosmology: {
+        creation: string;
+        afterlife: string;
+        moralCode: string; // Sin/Virtue
+    };
+
+    // Practices
+    practices: {
+        rituals: string;
+        holidays: string[];
+        taboos: string[];
+    };
+
+    // Pantheon
+    deities: Deity[];
+
+    // Structure
+    structure: {
+        hierarchy: string; // "Top-down", "Democratic"
+        leadership: string; // "High Priest", "Council"
+    };
+
+    // Sects
+    sects: Sect[];
+
+    // Texts
+    scriptures: string[];
+
+    // Myths
+    myths: MythBlock[];
+
+    // Scene-Use Snippets
+    prayers: string[]; // Short snippets for copy-paste
+}
+
+export interface ReligionOverride {
+    status: 'Stable' | 'Schism' | 'Reform' | 'Persecuted' | 'Dominant';
+    changes: string[]; // Log of changes in this act
+}
+
+// ===================================
+// MYSTERY / CLUE SYSTEM
+// ===================================
+export type ClueType = 'artifact' | 'testimony' | 'record' | 'anomaly' | 'symbol';
+export type ClueStatus = 'Open' | 'Chasing' | 'Stalled' | 'Resolved' | 'Retconned';
+
+/** @deprecated Use LoreThread instead */
+export interface MysteryClue {
+    id: string;
+    summary: string;
+    type: ClueType;
+    provenance: string; // Where found + who logged
+    timeBounds: string; // Earliest / Latest
+    reliability: string; // Witness quality / chain of custody
+    confidence: number; // 0-100
+    status: ClueStatus;
+
+    // Act association (for swimlanes) - Optional, null means global/backstory
+    actId?: string;
+
+    // Locks
+    locks: {
+        access: string;
+        skill: string;
+        ally: string;
+        location: string;
+        event: string;
+    };
+
+    // Costs/Risks
+    risks: {
+        attention: string;
+        resource: string;
+        moral: string;
+        escalation: string;
+        contradiction: string;
+    };
+
+    // Interested Parties
+    parties: {
+        name: string;
+        motivation: string;
+    }[];
+
+    // Payoff
+    payoff: {
+        decision: string;
+        spawns: string;
+    };
+}
+
+// ===================================
+// LORE THREADS (Simplified v2)
+// ===================================
+export type ThreadStatus = 'open' | 'hinted' | 'revealed' | 'dropped';
+
+export interface LoreThread {
+    id: string;
+    /** The mystery question (e.g. "Who killed the old king?") */
+    question: string;
+    /** Current status of this thread */
+    status: ThreadStatus;
+    /** Note ID where this was first planted */
+    plantedIn?: string;
+    /** The answer/resolution (hidden until status = revealed) */
+    answer?: string;
+    /** Linked entity IDs */
+    connectedEntities: string[];
+    /** When this was created */
+    createdAt: number;
+    /** Last update */
+    updatedAt: number;
 }
 
 export interface WorldScopeData {
@@ -86,12 +270,18 @@ export interface WorldScopeData {
     snapshot: WorldSnapshot;
     constraints: CanonConstraint[];
     pillars: WorldPillar[];
-    cultures: Culture[]; // Added Cultures
+    cultures: Culture[];
+    powerSystems: PowerSystem[];
+    religions: Religion[]; // Added Religions
+    mysteries: MysteryClue[]; // @deprecated - use loreThreads
+    loreThreads: LoreThread[]; // NEW: Simplified lore tracking
 
     // Act Data (stored on Act Folder)
     statusQuo: string;
     deltas: ActDelta[];
-    cultureOverrides: Record<string, CultureOverride>; // Keyed by CultureID
+    cultureOverrides: Record<string, CultureOverride>;
+    powerProgression: Record<string, PowerProgression>;
+    religionOverrides: Record<string, ReligionOverride>; // Added Religion Overrides
 }
 
 @Injectable({
@@ -102,56 +292,63 @@ export class WorldBuildingService {
     constructor() { }
 
     /**
-     * Get the root narrative folder for a given narrative ID.
-     */
-    private async getNarrativeFolder(narrativeId: string): Promise<Folder | undefined> {
-        // Find the folder where isNarrativeRoot is true and narrativeId matches
-        // OR simply get by ID if narrativeId IS the folder ID (which is true for roots)
-        return db.folders.get(narrativeId);
-    }
-
-    /**
-     * Get World Data (Snapshot, Constraints, Pillars, Cultures) from the Narrative Root.
+     * Get World Data (Snapshot, Constraints, Pillars, Cultures, PowerSystems, Religions) from the Narrative Root.
      */
     getWorldData$(narrativeId: string): Observable<{
         snapshot: WorldSnapshot;
         constraints: CanonConstraint[];
         pillars: WorldPillar[];
         cultures: Culture[];
+        powerSystems: PowerSystem[];
+        religions: Religion[];
+        mysteries: MysteryClue[];
+        loreThreads: LoreThread[];
     }> {
+        const DEFAULT: any = { snapshot: DEFAULT_SNAPSHOT, constraints: [], pillars: [], cultures: [], powerSystems: [], religions: [], mysteries: [], loreThreads: [] };
+
         return from(liveQuery(async () => {
-            const folder = await db.folders.get(narrativeId); // Assuming narrativeId is the root folder ID
-            if (!folder) return { snapshot: DEFAULT_SNAPSHOT, constraints: [], pillars: [], cultures: [] };
+            const folder = await db.folders.get(narrativeId);
+            if (!folder) return DEFAULT;
 
             const world = folder.attributes?.['world'] || {};
             return {
-                snapshot: world.snapshot || DEFAULT_SNAPSHOT,
+                snapshot: world.snapshot || DEFAULT.snapshot,
                 constraints: world.constraints || [],
                 pillars: world.pillars || [],
-                cultures: world.cultures || []
+                cultures: world.cultures || [],
+                powerSystems: world.powerSystems || [],
+                religions: world.religions || [],
+                mysteries: world.mysteries || [],
+                loreThreads: world.loreThreads || []
             };
         }));
     }
 
     /**
-     * Get Act Data (Status Quo, Deltas, Culture Overrides) from an Act Folder.
+     * Get Act Data (Status Quo, Deltas, Culture Overrides, Power Progression, Religion Overrides) from an Act Folder.
      */
     getActData$(actFolderId: string): Observable<{
         statusQuo: string;
         deltas: ActDelta[];
         cultureOverrides: Record<string, CultureOverride>;
+        powerProgression: Record<string, PowerProgression>;
+        religionOverrides: Record<string, ReligionOverride>;
     }> {
-        if (!actFolderId) return of({ statusQuo: '', deltas: [], cultureOverrides: {} });
+        const DEFAULT: any = { statusQuo: '', deltas: [], cultureOverrides: {}, powerProgression: {}, religionOverrides: {} };
+
+        if (!actFolderId) return of(DEFAULT);
 
         return from(liveQuery(async () => {
             const folder = await db.folders.get(actFolderId);
-            if (!folder) return { statusQuo: '', deltas: [], cultureOverrides: {} };
+            if (!folder) return DEFAULT;
 
             const act = folder.attributes?.['act'] || {};
             return {
                 statusQuo: act.statusQuo || '',
                 deltas: act.deltas || [],
-                cultureOverrides: act.cultureOverrides || {}
+                cultureOverrides: act.cultureOverrides || {},
+                powerProgression: act.powerProgression || {},
+                religionOverrides: act.religionOverrides || {}
             };
         }));
     }
@@ -161,13 +358,16 @@ export class WorldBuildingService {
     // =========================================================================================
 
     /**
-     * Update Global World Data (Snapshot, Constraints, Pillars, Cultures)
+     * Update Global World Data
      */
     async updateWorldData(narrativeId: string, data: Partial<{
         snapshot: WorldSnapshot;
         constraints: CanonConstraint[];
         pillars: WorldPillar[];
         cultures: Culture[];
+        powerSystems: PowerSystem[];
+        religions: Religion[];
+        mysteries: MysteryClue[];
     }>): Promise<void> {
         const folder = await db.folders.get(narrativeId);
         if (!folder) throw new Error('Narrative root not found');
@@ -179,6 +379,9 @@ export class WorldBuildingService {
         if (data.constraints) world.constraints = data.constraints;
         if (data.pillars) world.pillars = data.pillars;
         if (data.cultures) world.cultures = data.cultures;
+        if (data.powerSystems) world.powerSystems = data.powerSystems;
+        if (data.religions) world.religions = data.religions;
+        if (data.mysteries) world.mysteries = data.mysteries;
 
         attributes['world'] = world;
 
@@ -189,12 +392,14 @@ export class WorldBuildingService {
     }
 
     /**
-     * Update Act Data (Status Quo, Deltas, Culture Overrides)
+     * Update Act Data
      */
     async updateActData(actFolderId: string, data: Partial<{
         statusQuo: string;
         deltas: ActDelta[];
         cultureOverrides: Record<string, CultureOverride>;
+        powerProgression: Record<string, PowerProgression>;
+        religionOverrides: Record<string, ReligionOverride>;
     }>): Promise<void> {
         const folder = await db.folders.get(actFolderId);
         if (!folder) throw new Error('Act folder not found');
@@ -205,6 +410,8 @@ export class WorldBuildingService {
         if (data.statusQuo !== undefined) act.statusQuo = data.statusQuo;
         if (data.deltas) act.deltas = data.deltas;
         if (data.cultureOverrides) act.cultureOverrides = data.cultureOverrides;
+        if (data.powerProgression) act.powerProgression = data.powerProgression;
+        if (data.religionOverrides) act.religionOverrides = data.religionOverrides;
 
         attributes['act'] = act;
 
@@ -222,12 +429,77 @@ export class WorldBuildingService {
         await this.updateActData(actFolderId, { cultureOverrides: overrides });
     }
 
+    async updatePowerSystems(narrativeId: string, powerSystems: PowerSystem[]): Promise<void> {
+        await this.updateWorldData(narrativeId, { powerSystems });
+    }
+
+    async updateActPowerProgression(actFolderId: string, progression: Record<string, PowerProgression>): Promise<void> {
+        await this.updateActData(actFolderId, { powerProgression: progression });
+    }
+
+    async updateReligions(narrativeId: string, religions: Religion[]): Promise<void> {
+        await this.updateWorldData(narrativeId, { religions });
+    }
+
+    async updateActReligionOverrides(actFolderId: string, overrides: Record<string, ReligionOverride>): Promise<void> {
+        await this.updateActData(actFolderId, { religionOverrides: overrides });
+    }
+
     getCultures$(narrativeId: string): Observable<Culture[]> {
         return this.getWorldData$(narrativeId).pipe(map(data => data.cultures));
     }
 
     getActCultureOverrides$(actFolderId: string): Observable<Record<string, CultureOverride>> {
         return this.getActData$(actFolderId).pipe(map(data => data.cultureOverrides));
+    }
+
+    getPowerSystems$(narrativeId: string): Observable<PowerSystem[]> {
+        return this.getWorldData$(narrativeId).pipe(map(data => data.powerSystems));
+    }
+
+    getActPowerProgression$(actFolderId: string): Observable<Record<string, PowerProgression>> {
+        return this.getActData$(actFolderId).pipe(map(data => data.powerProgression));
+    }
+
+    getReligions$(narrativeId: string): Observable<Religion[]> {
+        return this.getWorldData$(narrativeId).pipe(map(data => data.religions));
+    }
+
+    getMysteries$(narrativeId: string): Observable<MysteryClue[]> {
+        return this.getWorldData$(narrativeId).pipe(map(data => data.mysteries));
+    }
+
+    getActReligionOverrides$(actFolderId: string): Observable<Record<string, ReligionOverride>> {
+        return this.getActData$(actFolderId).pipe(map(data => data.religionOverrides));
+    }
+
+    /** @deprecated Use getLoreThreads$ instead */
+    // Helper to update mysteries
+    async updateMysteries(narrativeId: string, mysteries: MysteryClue[]): Promise<void> {
+        await this.updateWorldData(narrativeId, { mysteries });
+    }
+
+    // ===================================
+    // LORE THREADS (v2)
+    // ===================================
+
+    getLoreThreads$(narrativeId: string): Observable<LoreThread[]> {
+        return this.getWorldData$(narrativeId).pipe(map(data => data.loreThreads));
+    }
+
+    async updateLoreThreads(narrativeId: string, threads: LoreThread[]): Promise<void> {
+        const folder = await db.folders.get(narrativeId);
+        if (!folder) throw new Error('Narrative root not found');
+
+        const attributes = folder.attributes || {};
+        const world = attributes['world'] || {};
+        world.loreThreads = threads;
+        attributes['world'] = world;
+
+        await db.folders.update(narrativeId, {
+            attributes,
+            updatedAt: Date.now()
+        });
     }
 
     /*

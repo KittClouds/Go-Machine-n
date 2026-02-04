@@ -1,7 +1,8 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { MainLayoutComponent } from './components/layout/main-layout/main-layout.component';
 import { NgxSpinnerModule, NgxSpinnerService } from 'ngx-spinner';
+import { Subscription } from 'rxjs';
 
 import { smartGraphRegistry } from './lib/registry';
 import { entityColorStore } from './lib/store/entityColorStore';
@@ -12,6 +13,9 @@ import { AppOrchestrator, setAppOrchestrator } from './lib/core/app-orchestrator
 import { DexieCozoBridge } from './lib/bridge';
 import { cozoDb } from './lib/cozo/db';
 import { ProjectionCacheService } from './lib/services/projection-cache.service';
+import { getNavigationApi } from './api/navigation-api';
+import { NotesService } from './lib/dexie/notes.service';
+import { NoteEditorStore } from './lib/store/note-editor.store';
 
 @Component({
   selector: 'app-root',
@@ -20,13 +24,19 @@ import { ProjectionCacheService } from './lib/services/projection-cache.service'
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   title = 'angular-notes';
   private spinner = inject(NgxSpinnerService);
   private goKitt = inject(GoKittService);
   private orchestrator = inject(AppOrchestrator);
   private bridge = inject(DexieCozoBridge);
   private projectionCache = inject(ProjectionCacheService);
+  private notesService = inject(NotesService);
+  private noteEditorStore = inject(NoteEditorStore);
+
+  // Navigation API subscriptions
+  private notesSub: Subscription | null = null;
+  private navUnsubscribe: (() => void) | null = null;
 
   async ngOnInit() {
     // Phase 0: Shell - spinner visible
@@ -40,6 +50,9 @@ export class AppComponent implements OnInit {
 
     // Initialize entity color CSS variables (sync, no deps)
     entityColorStore.initialize();
+
+    // Wire up Navigation API
+    this.wireUpNavigationApi();
 
     console.log('[AppComponent] Starting orchestrated boot...');
 
@@ -92,5 +105,39 @@ export class AppComponent implements OnInit {
       await new Promise(resolve => setTimeout(resolve, 300));
       this.spinner.hide();
     }
+  }
+
+  ngOnDestroy(): void {
+    // Clean up Navigation API subscriptions
+    if (this.notesSub) {
+      this.notesSub.unsubscribe();
+    }
+    if (this.navUnsubscribe) {
+      this.navUnsubscribe();
+    }
+  }
+
+  /**
+   * Wire up Navigation API for cross-note navigation from entity clicks.
+   * - Syncs notes list to NavigationApi.setNotes()
+   * - Registers handler to open notes via NoteEditorStore
+   */
+  private wireUpNavigationApi(): void {
+    const navigationApi = getNavigationApi();
+
+    // Sync notes to Navigation API whenever they change
+    this.notesSub = this.notesService.getAllNotes$().subscribe(notes => {
+      // Map Dexie Note to API Note type (they're compatible)
+      navigationApi.setNotes(notes as any);
+      console.log(`[AppComponent] NavigationApi synced with ${notes.length} notes`);
+    });
+
+    // Register navigation handler
+    this.navUnsubscribe = navigationApi.onNavigate((noteId) => {
+      console.log('[AppComponent] Navigation handler triggered:', noteId);
+      this.noteEditorStore.openNote(noteId);
+    });
+
+    console.log('[AppComponent] ✓ Navigation API wired up');
   }
 }

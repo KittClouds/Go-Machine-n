@@ -423,8 +423,7 @@ export class WorldOverviewComponent {
         toObservable(this.narrativeId).pipe(
             switchMap(nid => nid ? this.worldService.getWorldData$(nid) : of(null))
         ),
-        // FIXED: Include 'cultures'
-        { initialValue: { snapshot: DEFAULT_SNAPSHOT, constraints: [], pillars: [], cultures: [] } }
+        { initialValue: { snapshot: DEFAULT_SNAPSHOT, constraints: [], pillars: [], cultures: [], powerSystems: [], religions: [], mysteries: [], loreThreads: [] } }
     );
 
     // 5. Act Data (Scoped)
@@ -432,8 +431,7 @@ export class WorldOverviewComponent {
         toObservable(this.selectedActId).pipe(
             switchMap(aid => aid ? this.worldService.getActData$(aid) : of(null))
         ),
-        // FIXED: Include 'cultureOverrides'
-        { initialValue: { statusQuo: '', deltas: [], cultureOverrides: {} } }
+        { initialValue: { statusQuo: '', deltas: [], cultureOverrides: {}, powerProgression: {}, religionOverrides: {} } }
     );
 
     // ===================================
