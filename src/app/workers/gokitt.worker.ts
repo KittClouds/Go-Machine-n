@@ -28,7 +28,13 @@ type GoKittWorkerMessage =
     | { type: 'INDEX_NOTE'; payload: { id: string; text: string }; id: number }
     | { type: 'SEARCH'; payload: { query: string[]; limit?: number; vector?: number[] }; id: number }
     | { type: 'ADD_VECTOR'; payload: { id: string; vectorJSON: string }; id: number }
-    | { type: 'SEARCH_VECTORS'; payload: { vectorJSON: string; k: number }; id: number };
+    | { type: 'SEARCH_VECTORS'; payload: { vectorJSON: string; k: number }; id: number }
+    // DocStore API
+    | { type: 'HYDRATE_NOTES'; payload: { notesJSON: string }; id: number }
+    | { type: 'UPSERT_NOTE'; payload: { id: string; text: string; version?: number }; id: number }
+    | { type: 'REMOVE_NOTE'; payload: { id: string }; id: number }
+    | { type: 'SCAN_NOTE'; payload: { noteId: string; provenance?: ProvenanceContext }; id: number }
+    | { type: 'DOC_COUNT'; id: number };
 
 /** Outgoing messages to main thread */
 type GoKittWorkerResponse =
@@ -41,6 +47,12 @@ type GoKittWorkerResponse =
     | { type: 'SEARCH_RESULT'; id: number; payload: any[] }
     | { type: 'ADD_VECTOR_RESULT'; id: number; payload: { success: boolean; error?: string } }
     | { type: 'SEARCH_VECTORS_RESULT'; id: number; payload: string[] }
+    // DocStore responses
+    | { type: 'HYDRATE_NOTES_RESULT'; id: number; payload: { success: boolean; count?: number; error?: string } }
+    | { type: 'UPSERT_NOTE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'REMOVE_NOTE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'SCAN_NOTE_RESULT'; id: number; payload: any }
+    | { type: 'DOC_COUNT_RESULT'; id: number; payload: number }
     | { type: 'ERROR'; id?: number; payload: { message: string } };
 
 // =============================================================================
@@ -113,6 +125,12 @@ declare const GoKitt: {
     addVector: (id: string, vectorJSON: string) => string;
     searchVectors: (vectorJSON: string, k: number) => string;
     saveVectors: () => string;
+    // DocStore API
+    hydrateNotes: (notesJSON: string) => string;
+    upsertNote: (id: string, text: string, version?: number) => string;
+    removeNote: (id: string) => string;
+    scanNote: (noteId: string, provenanceJSON?: string) => string;
+    docCount: () => number;
 };
 
 /**
@@ -357,6 +375,121 @@ self.onmessage = async (e: MessageEvent<GoKittWorkerMessage>) => {
                     type: 'SEARCH_VECTORS_RESULT',
                     id: msg.id,
                     payload: ids
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            // =================================================================
+            // DocStore API Handlers
+            // =================================================================
+
+            case 'HYDRATE_NOTES': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'HYDRATE_NOTES_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.hydrateNotes(msg.payload.notesJSON);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'HYDRATE_NOTES_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'UPSERT_NOTE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'UPSERT_NOTE_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.upsertNote(
+                    msg.payload.id,
+                    msg.payload.text,
+                    msg.payload.version ?? 0
+                );
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'UPSERT_NOTE_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'REMOVE_NOTE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'REMOVE_NOTE_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.removeNote(msg.payload.id);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'REMOVE_NOTE_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'SCAN_NOTE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const provJSON = msg.payload.provenance
+                    ? JSON.stringify(msg.payload.provenance)
+                    : '';
+                const json = GoKitt.scanNote(msg.payload.noteId, provJSON);
+                const result = JSON.parse(json);
+
+                self.postMessage({
+                    type: 'SCAN_NOTE_RESULT',
+                    id: msg.id,
+                    payload: result
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'DOC_COUNT': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'DOC_COUNT_RESULT',
+                        id: msg.id,
+                        payload: 0
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const count = GoKitt.docCount();
+
+                self.postMessage({
+                    type: 'DOC_COUNT_RESULT',
+                    id: msg.id,
+                    payload: count
                 } as GoKittWorkerResponse);
                 break;
             }

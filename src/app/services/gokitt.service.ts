@@ -32,7 +32,13 @@ type GoKittWorkerMessage =
     | { type: 'INDEX_NOTE'; payload: { id: string; text: string }; id: number }
     | { type: 'SEARCH'; payload: { query: string[]; limit?: number; vector?: number[] }; id: number }
     | { type: 'ADD_VECTOR'; payload: { id: string; vectorJSON: string }; id: number }
-    | { type: 'SEARCH_VECTORS'; payload: { vectorJSON: string; k: number }; id: number };
+    | { type: 'SEARCH_VECTORS'; payload: { vectorJSON: string; k: number }; id: number }
+    // DocStore API
+    | { type: 'HYDRATE_NOTES'; payload: { notesJSON: string }; id: number }
+    | { type: 'UPSERT_NOTE'; payload: { id: string; text: string; version?: number }; id: number }
+    | { type: 'REMOVE_NOTE'; payload: { id: string }; id: number }
+    | { type: 'SCAN_NOTE'; payload: { noteId: string; provenance?: ProvenanceContext }; id: number }
+    | { type: 'DOC_COUNT'; id: number };
 
 type GoKittWorkerResponse =
     | { type: 'INIT_COMPLETE' }
@@ -44,6 +50,12 @@ type GoKittWorkerResponse =
     | { type: 'SEARCH_RESULT'; id: number; payload: any[] }
     | { type: 'ADD_VECTOR_RESULT'; id: number; payload: { success: boolean; error?: string } }
     | { type: 'SEARCH_VECTORS_RESULT'; id: number; payload: string[] }
+    // DocStore responses
+    | { type: 'HYDRATE_NOTES_RESULT'; id: number; payload: { success: boolean; count?: number; error?: string } }
+    | { type: 'UPSERT_NOTE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'REMOVE_NOTE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'SCAN_NOTE_RESULT'; id: number; payload: any }
+    | { type: 'DOC_COUNT_RESULT'; id: number; payload: number }
     | { type: 'ERROR'; id?: number; payload: { message: string } };
 
 @Injectable({
@@ -488,6 +500,12 @@ export class GoKittService {
                         case 'SEARCH_RESULT':
                         case 'ADD_VECTOR_RESULT':
                         case 'SEARCH_VECTORS_RESULT':
+                        // DocStore responses
+                        case 'HYDRATE_NOTES_RESULT':
+                        case 'UPSERT_NOTE_RESULT':
+                        case 'REMOVE_NOTE_RESULT':
+                        case 'SCAN_NOTE_RESULT':
+                        case 'DOC_COUNT_RESULT':
                             pending.resolve(msg.payload);
                             break;
                         default:
@@ -546,5 +564,63 @@ export class GoKittService {
                 reject(new Error(`${msg.type} timed out`));
             }, 30000);
         });
+    }
+
+    // =========================================================================
+    // DocStore API - In-memory document storage in Go WASM
+    // =========================================================================
+
+    /**
+     * Hydrate DocStore with all notes at startup.
+     * Notes are stored in Go memory for fast scanning without JS roundtrips.
+     * @param notes Array of { id, text, version? }
+     */
+    async hydrateNotes(notes: Array<{ id: string; text: string; version?: number }>): Promise<{ success: boolean; error?: string }> {
+        console.log(`[GoKittService.hydrateNotes] Hydrating ${notes.length} notes...`);
+        const notesJSON = JSON.stringify(notes);
+        return this.sendRequest<{ success: boolean; error?: string }>('HYDRATE_NOTES', { notesJSON });
+    }
+
+    /**
+     * Update a single note in DocStore.
+     * Called when user saves a note.
+     */
+    async upsertNote(id: string, text: string, version?: number): Promise<{ success: boolean; error?: string }> {
+        return this.sendRequest<{ success: boolean; error?: string }>('UPSERT_NOTE', { id, text, version });
+    }
+
+    /**
+     * Remove a note from DocStore.
+     */
+    async removeNote(id: string): Promise<{ success: boolean; error?: string }> {
+        return this.sendRequest<{ success: boolean; error?: string }>('REMOVE_NOTE', { id });
+    }
+
+    /**
+     * Scan a note from DocStore (reads from Go memory, not JS).
+     * This eliminates the JS→Go text transfer on each scan.
+     * @param noteId The note ID (must have been hydrated first)
+     * @param provenance Optional folder/vault context
+     */
+    async scanNote(noteId: string, provenance?: ProvenanceContext): Promise<any> {
+        console.log(`[GoKittService.scanNote] Scanning note from DocStore: ${noteId}`);
+        const result = await this.sendRequest<any>('SCAN_NOTE', { noteId, provenance });
+
+        // Store graph data for visualization
+        if (result.graph) {
+            this._lastGraphData.set({
+                nodes: result.graph.nodes || {},
+                edges: result.graph.edges || []
+            });
+        }
+
+        return result;
+    }
+
+    /**
+     * Get the number of documents in DocStore.
+     */
+    async getDocCount(): Promise<number> {
+        return this.sendRequest<number>('DOC_COUNT', {});
     }
 }
