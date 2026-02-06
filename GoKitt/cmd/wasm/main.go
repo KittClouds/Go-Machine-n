@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hack-pad/hackpadfs/indexeddb"
+	"github.com/kittclouds/gokitt/pkg/docstore"
 	"github.com/kittclouds/gokitt/pkg/hierarchy"
 	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/reality/builder"
@@ -22,13 +23,13 @@ import (
 )
 
 // Version info
-const Version = "0.2.0"
+const Version = "0.3.0" // DocStore update
 
-// Global state
 // Global state
 var pipeline *conductor.Conductor
 var searcher *resorank.Scorer
 var vectorStore *vector.Store
+var docs *docstore.Store // NEW: In-memory document store
 
 // ID Mapping for Vector Store (String -> Uint32)
 // Since HNSW only supports uint32, we map our string IDs.
@@ -47,6 +48,10 @@ func main() {
 
 	// Initialize Searcher
 	searcher = resorank.NewScorer(resorank.DefaultConfig())
+
+	// Initialize DocStore
+	docs = docstore.New()
+
 	fmt.Println("[GoKitt] WASM Ready v" + Version)
 
 	// Register exports
@@ -57,13 +62,19 @@ func main() {
 		"scanImplicit":  js.FuncOf(scanImplicit),
 		"scanDiscovery": js.FuncOf(scanDiscovery),
 		"indexDocument": js.FuncOf(indexDocument),
-		"indexNote":     js.FuncOf(indexNote), // New: Scan & Index raw text
+		"indexNote":     js.FuncOf(indexNote),
 		"search":        js.FuncOf(search),
 		// Vector Store API
 		"initVectors":   js.FuncOf(initVectors),
-		"addVector":     js.FuncOf(addVector),     // now takes string ID
-		"searchVectors": js.FuncOf(searchVectors), // now returns string IDs
+		"addVector":     js.FuncOf(addVector),
+		"searchVectors": js.FuncOf(searchVectors),
 		"saveVectors":   js.FuncOf(saveVectors),
+		// DocStore API (NEW)
+		"hydrateNotes": js.FuncOf(hydrateNotes), // Bulk load notes on startup
+		"upsertNote":   js.FuncOf(upsertNote),   // Update single note
+		"removeNote":   js.FuncOf(removeNote),   // Delete note
+		"scanNote":     js.FuncOf(scanNote),     // Scan from DocStore (not JS)
+		"docCount":     js.FuncOf(docCount),     // Get document count
 	}))
 
 	select {}
@@ -560,4 +571,178 @@ func successResult(msg string) interface{} {
 	}
 	jsonBytes, _ := json.Marshal(result)
 	return string(jsonBytes)
+}
+
+// =============================================================================
+// DocStore API - In-memory document storage
+// =============================================================================
+
+// hydrateNotes bulk-loads notes into the DocStore.
+// Called once at startup. No scanning - just storage.
+// Args: [notesJSON string] - Array of {id, text, version?}
+func hydrateNotes(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("hydrateNotes requires 1 arg: notesJSON")
+	}
+
+	var input []struct {
+		ID      string `json:"id"`
+		Text    string `json:"text"`
+		Version int64  `json:"version"`
+	}
+
+	if err := json.Unmarshal([]byte(args[0].String()), &input); err != nil {
+		return errorResult("invalid notes json: " + err.Error())
+	}
+
+	docsList := make([]docstore.Document, len(input))
+	for i, n := range input {
+		docsList[i] = docstore.Document{
+			ID:      n.ID,
+			Text:    n.Text,
+			Version: n.Version,
+		}
+	}
+
+	count := docs.Hydrate(docsList)
+	fmt.Printf("[GoKitt] ✅ DocStore hydrated: %d notes\n", count)
+	return successResult(fmt.Sprintf("hydrated %d notes", count))
+}
+
+// upsertNote adds or updates a single note in DocStore.
+// Called when user saves a note.
+// Args: [id string, text string, version int64 (optional)]
+func upsertNote(this js.Value, args []js.Value) interface{} {
+	if len(args) < 2 {
+		return errorResult("upsertNote requires 2+ args: id, text, [version]")
+	}
+
+	id := args[0].String()
+	text := args[1].String()
+	var version int64 = 0
+	if len(args) > 2 {
+		version = int64(args[2].Int())
+	}
+
+	docs.Upsert(id, text, version)
+	return successResult("upserted " + id)
+}
+
+// removeNote deletes a note from DocStore.
+// Args: [id string]
+func removeNote(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("removeNote requires 1 arg: id")
+	}
+
+	id := args[0].String()
+	docs.Remove(id)
+	return successResult("removed " + id)
+}
+
+// scanNote scans a note from DocStore (not from JS).
+// This eliminates the JS→Go text transfer on each scan.
+// Args: [id string, provenanceJSON string (optional)]
+func scanNote(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("scanNote requires 1 arg: noteId")
+	}
+	if pipeline == nil {
+		return errorResult("pipeline not initialized")
+	}
+
+	noteId := args[0].String()
+
+	// Get text from DocStore (not from JS!)
+	text := docs.GetText(noteId)
+	if text == "" {
+		return errorResult("note not found in DocStore: " + noteId)
+	}
+
+	start := time.Now()
+
+	// Parse optional provenance context
+	var prov *hierarchy.ProvenanceContext
+	if len(args) > 1 && args[1].String() != "" && args[1].String() != "null" {
+		var provInput struct {
+			VaultID    string `json:"vaultId"`
+			WorldID    string `json:"worldId"`
+			ParentPath string `json:"parentPath"`
+			FolderType string `json:"folderType"`
+		}
+		if err := json.Unmarshal([]byte(args[1].String()), &provInput); err == nil {
+			prov = &hierarchy.ProvenanceContext{
+				VaultID:    provInput.VaultID,
+				WorldID:    provInput.WorldID,
+				ParentPath: provInput.ParentPath,
+				FolderType: provInput.FolderType,
+			}
+		}
+	}
+
+	// === SAME PIPELINE AS scan() ===
+	// 1. Scan (The Senses)
+	result := pipeline.Scan(text)
+
+	// 2. Reality (The Brain)
+	cstRoot := builder.Zip(text, result)
+
+	// 3. Graph (The World)
+	entityMap := make(projection.EntityMap)
+	for _, ref := range result.ResolvedRefs {
+		entityMap[ref.Range.Start] = ref.EntityID
+	}
+
+	conceptGraph := projection.Project(cstRoot, pipeline.GetMatcher(), entityMap, text, prov)
+	conceptGraph.ToSerializable()
+
+	// 4. PCST (The Summary)
+	prizes := make(map[string]float64)
+	for id := range conceptGraph.Nodes {
+		prizes[id] = 1.0
+	}
+	solver := pcst.NewIpcstSolver(pcst.DefaultConfig())
+	_, _ = solver.Solve(conceptGraph, prizes, "")
+
+	duration := time.Since(start).Microseconds()
+
+	// Slim response
+	slimNodes := make(map[string]interface{}, len(conceptGraph.Nodes))
+	for id, node := range conceptGraph.Nodes {
+		slimNodes[id] = map[string]interface{}{
+			"label": node.Label,
+			"kind":  node.Kind,
+		}
+	}
+
+	slimEdges := make([]interface{}, 0, len(conceptGraph.Edges))
+	for _, edge := range conceptGraph.Edges {
+		slimEdges = append(slimEdges, map[string]interface{}{
+			"source":     edge.Source,
+			"target":     edge.Target,
+			"type":       edge.Relation,
+			"confidence": edge.Weight,
+		})
+	}
+
+	response := map[string]interface{}{
+		"noteId": noteId,
+		"graph": map[string]interface{}{
+			"nodes": slimNodes,
+			"edges": slimEdges,
+		},
+		"timing_us": duration,
+	}
+
+	jsonBytes, err := json.Marshal(response)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	return string(jsonBytes)
+}
+
+// docCount returns the number of documents in DocStore.
+func docCount(this js.Value, args []js.Value) interface{} {
+	return docs.Count()
 }
