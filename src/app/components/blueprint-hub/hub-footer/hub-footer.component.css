@@ -2,3 +2,16 @@
     display: block;
     width: 100%;
 }
+
+/* Character count health gradient styling */
+::ng-deep .char-health-gradient {
+    font-size: 12px !important;
+    font-weight: 500;
+    /* Subtle text shadow for glow effect */
+    text-shadow: 0 0 8px currentColor;
+}
+
+::ng-deep om-gradient-text {
+    display: inline-flex;
+    align-items: center;
+}

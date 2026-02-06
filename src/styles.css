@@ -286,36 +286,71 @@
 
 /* ============================================
    COLLAPSIBLE DETAILS PLUGIN STYLES
+   Beautiful Elegant Design
    ============================================ */
 
 .milkdown-details {
-    margin: 0.75rem 0;
-    border-left: 2px solid rgba(100, 100, 100, 0.2);
-    padding-left: 1rem;
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
     position: relative;
-    /* transition: border-left-color 0.2s; */
+    /* No border-left - we use pseudo-element gradient guiderail */
 }
 
-/* Dark mode adjustment for border */
-.dark .milkdown-details {
-    border-left-color: rgba(255, 255, 255, 0.1);
+/* Elegant gradient guiderail */
+.milkdown-details::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg,
+            rgba(139, 92, 246, 0.5) 0%,
+            rgba(20, 184, 166, 0.3) 50%,
+            rgba(139, 92, 246, 0.2) 100%);
+    border-radius: 1px;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
 }
 
+/* Dark mode - slightly brighter */
+.dark .milkdown-details::before {
+    background: linear-gradient(180deg,
+            rgba(139, 92, 246, 0.6) 0%,
+            rgba(20, 184, 166, 0.4) 50%,
+            rgba(139, 92, 246, 0.3) 100%);
+}
+
+/* Nested details - different gradient hues */
 .milkdown-details .milkdown-details {
-    margin-left: 0.5rem;
+    margin-left: 0.25rem;
+}
+
+.milkdown-details .milkdown-details::before {
+    background: linear-gradient(180deg,
+            rgba(20, 184, 166, 0.4) 0%,
+            rgba(139, 92, 246, 0.25) 100%);
+}
+
+.milkdown-details .milkdown-details .milkdown-details::before {
+    background: linear-gradient(180deg,
+            rgba(139, 92, 246, 0.3) 0%,
+            rgba(236, 72, 153, 0.2) 100%);
 }
 
 .milkdown-details-summary {
     cursor: pointer;
     user-select: none;
     font-weight: 500;
-    padding: 0.25rem 0;
+    padding: 0.35rem 0 0.35rem 0.75rem;
     position: relative;
     list-style: none;
     display: flex;
     align-items: center;
     gap: 0.5rem;
     color: var(--foreground);
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
 }
 
 .milkdown-details-summary::-webkit-details-marker {
@@ -326,60 +361,60 @@
     display: none;
 }
 
-/* Custom disclosure triangle */
-.milkdown-details-summary::before {
-    content: '▶';
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1rem;
-    height: 1rem;
-    font-size: 0.55rem;
-    transition: transform 0.2s ease, color 0.2s ease;
-    color: rgba(150, 150, 150, 0.7);
-    flex-shrink: 0;
-}
+/* ============================================
+   PURPLE DOT INDICATOR
+   - Filled = Collapsed
+   - Hollow = Expanded
+   ============================================ */
 
-/* Purple circle indicator (collapsed state) */
-.milkdown-details:not([open])>.milkdown-details-summary::after {
+/* Base dot - always visible */
+.milkdown-details-summary::before {
     content: '';
     position: absolute;
-    left: 1.1rem;
+    left: -0.625rem;
     top: 50%;
     transform: translateY(-50%);
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    z-index: 1;
+}
+
+/* Collapsed state: Filled purple dot */
+.milkdown-details:not([open])>.milkdown-details-summary::before {
     background-color: #8b5cf6;
-    pointer-events: none;
+    box-shadow: 0 0 6px rgba(139, 92, 246, 0.5);
 }
 
-/* Open state: rotate arrow */
+/* Expanded state: Hollow purple ring */
 .milkdown-details[open]>.milkdown-details-summary::before {
-    transform: rotate(90deg);
+    background-color: transparent;
+    border: 2px solid #8b5cf6;
+    box-shadow: 0 0 4px rgba(139, 92, 246, 0.3);
 }
 
-.milkdown-details[open]>.milkdown-details-summary::after {
-    display: none;
+/* Hover effect on dot */
+.milkdown-details-summary:hover::before {
+    transform: translateY(-50%) scale(1.15);
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.6);
 }
 
 /* Hover state */
 .milkdown-details-summary:hover {
-    background-color: rgba(0, 0, 0, 0.03);
-    border-radius: 4px;
-    margin-left: -0.25rem;
-    padding-left: 0.25rem;
+    background-color: rgba(139, 92, 246, 0.06);
 }
 
 .dark .milkdown-details-summary:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(139, 92, 246, 0.1);
 }
 
 /* Content area */
 .milkdown-details-content {
-    padding: 0.25rem 0 0.25rem 0;
+    padding: 0.25rem 0 0.5rem 0;
     position: relative;
-    margin-left: 0.25rem;
+    margin-left: 0;
 }
 
 /* Slide animation */
@@ -390,7 +425,7 @@
 @keyframes detailsSlideDown {
     from {
         opacity: 0;
-        transform: translateY(-8px);
+        transform: translateY(-6px);
     }
 
     to {
@@ -403,36 +438,28 @@
     display: none;
 }
 
-/* Vertical connector line inside content */
-.milkdown-details-content::before {
-    content: '';
-    position: absolute;
-    left: -0.75rem;
-    top: 0;
-    bottom: 0.25rem;
-    width: 1px;
-    background-color: rgba(100, 100, 100, 0.2);
-    pointer-events: none;
-}
+/* No extra connector line - the guiderail is enough */
 
 /* Nested Details Indentation */
 .milkdown-details .milkdown-details .milkdown-details-content {
-    margin-left: 0.5rem;
+    margin-left: 0.25rem;
 }
 
 .milkdown-details .milkdown-details .milkdown-details .milkdown-details-content {
-    margin-left: 0.75rem;
+    margin-left: 0.5rem;
 }
 
-/* Focus State */
-.milkdown-details:focus-within {
-    border-left-color: rgba(139, 92, 246, 0.4);
+/* Focus State - Highlight guiderail */
+.milkdown-details:focus-within::before {
+    background: linear-gradient(180deg,
+            rgba(139, 92, 246, 0.7) 0%,
+            rgba(20, 184, 166, 0.5) 50%,
+            rgba(139, 92, 246, 0.4) 100%);
 }
 
 .milkdown-details-summary:focus {
     outline: none;
-    background-color: rgba(139, 92, 246, 0.1);
-    border-radius: 4px;
+    background-color: rgba(139, 92, 246, 0.08);
 }
 
 /* ============================================

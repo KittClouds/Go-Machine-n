@@ -11,6 +11,7 @@ import { FactSheetCardComponent } from '../fact-sheet-card/fact-sheet-card.compo
 import { FactSheetService, CardWithFields } from '../fact-sheet.service';
 import { FactSheetFieldSchema } from '../../../lib/dexie';
 import { SliderManagerComponent } from '../fields/slider-manager.component';
+import { graphRegistry } from '../../../lib/cozo/graph/GraphRegistry';
 
 export interface ParsedEntity {
   id: string;
@@ -546,6 +547,11 @@ export class FactSheetContainerComponent implements OnInit {
 
     this.attributes.update(a => ({ ...a, [fieldName]: value }));
     await this.factSheetService.setAttribute(entity.id, fieldName, value, this.contextId());
+
+    // Sync fullName to registry as an alias (so entity detection picks it up)
+    if (fieldName === 'fullName' && value.trim()) {
+      this.syncAliasesToRegistry(entity.id);
+    }
   }
 
   async onNumberChange(fieldName: string, value: number) {
@@ -581,6 +587,11 @@ export class FactSheetContainerComponent implements OnInit {
     await this.factSheetService.setAttribute(entity.id, fieldName, newArray, this.contextId());
 
     input.value = ''; // Clear input
+
+    // Sync aliases to registry for entity detection
+    if (fieldName === 'aliases') {
+      this.syncAliasesToRegistry(entity.id);
+    }
   }
 
   async removeArrayItem(fieldName: string, index: number) {
@@ -593,6 +604,32 @@ export class FactSheetContainerComponent implements OnInit {
     this.arrayModels.update(m => ({ ...m, [fieldName]: newArray }));
     this.attributes.update(a => ({ ...a, [fieldName]: newArray }));
     await this.factSheetService.setAttribute(entity.id, fieldName, newArray, this.contextId());
+
+    // Sync aliases to registry for entity detection
+    if (fieldName === 'aliases') {
+      this.syncAliasesToRegistry(entity.id);
+    }
+  }
+
+  /**
+   * Sync aliases + fullName to registry so entity detection picks them up.
+   * Combines the 'aliases' array with 'fullName' (if set) into the registry's alias list.
+   */
+  private syncAliasesToRegistry(entityId: string) {
+    const attrs = this.attributes();
+    const aliases: string[] = attrs['aliases'] || [];
+    const fullName = attrs['fullName'] as string || '';
+
+    // Combine: fullName (if non-empty) + all manual aliases
+    const allAliases: string[] = [];
+    if (fullName.trim()) {
+      allAliases.push(fullName.trim());
+    }
+    allAliases.push(...aliases.filter(a => a.trim()));
+
+    // Update registry (Cozo-backed, persists to OPFS)
+    graphRegistry.updateEntity(entityId, { aliases: allAliases });
+    console.log(`[FactSheet] Synced aliases to registry: ${allAliases.join(', ')}`);
   }
 
   async addPlaceholderRelationship(fieldName: string) {

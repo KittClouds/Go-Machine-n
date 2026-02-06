@@ -18,6 +18,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       <i class="pi text-[10px]" 
          [class.pi-globe]="scopeType() === 'folder' && isGlobal()"
          [class.pi-folder]="scopeType() === 'folder' && !isGlobal()"
+         [class.pi-bookmark]="scopeType() === 'act'"
          [class.pi-book]="scopeType() === 'narrative'"
          [class.pi-file]="scopeType() === 'note'"></i>
       
@@ -49,6 +50,13 @@ export class ScopeIndicatorComponent {
             if (scope.type === 'folder') {
                 const folder = await db.folders.get(scope.id);
                 return folder?.name || 'Unknown Folder';
+            }
+
+            // ACT scope: Get the ACT folder name
+            if (scope.type === 'act') {
+                const actId = scope.actId || scope.id;
+                const folder = await db.folders.get(actId);
+                return folder?.name || 'Act';
             }
 
             if (scope.type === 'narrative') {

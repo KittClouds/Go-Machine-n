@@ -37,6 +37,13 @@
                 <lucide-icon [img]="Calendar" size="18"></lucide-icon>
             </button>
 
+            <!-- 3D Graph -->
+            <button
+                class="w-9 h-9 flex items-center justify-center rounded-lg text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 transition-all duration-200"
+                title="Knowledge Graph" (click)="navigateToGraph()">
+                <lucide-icon [img]="Share2" size="18"></lucide-icon>
+            </button>
+
             <!-- Search -->
             <button class="w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200"
                 [class.bg-teal-500_20]="viewMode() === 'search'" [class.text-teal-300]="viewMode() === 'search'"
@@ -174,8 +181,20 @@
 
         <!-- Panel Footer -->
         <div
-            class="h-8 flex items-center px-3 border-t border-sidebar-border shrink-0 text-xs bg-gradient-to-r from-[#115e59] via-[#134e4a] to-[#0f2a2e] text-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1),0_-2px_4px_-1px_rgba(0,0,0,0.06)] relative z-10">
-            {{ treeData().length }} items
+            class="h-8 flex items-center justify-between px-3 border-t border-sidebar-border shrink-0 text-xs bg-gradient-to-r from-[#115e59] via-[#134e4a] to-[#0f2a2e] text-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1),0_-2px_4px_-1px_rgba(0,0,0,0.06)] relative z-10">
+            <span>{{ treeData().length }} items</span>
+
+            <!-- Graph Scan Button -->
+            <button (click)="triggerGraphScan()" [disabled]="isScanning()"
+                class="flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors"
+                [class.bg-teal-500/20]="!isScanning()" [class.text-teal-300]="!isScanning()"
+                [class.hover:bg-teal-500/30]="!isScanning()" [class.bg-amber-500/20]="isScanning()"
+                [class.text-amber-300]="isScanning()" [class.cursor-wait]="isScanning()"
+                [title]="isScanning() ? 'Scanning...' : 'Run Graph Scan on Current Note'">
+                <lucide-icon [img]="RefreshCw" size="12" [class.animate-spin]="isScanning()">
+                </lucide-icon>
+                <span class="text-[10px] font-medium">{{ isScanning() ? 'Scanning...' : 'Graph Scan' }}</span>
+            </button>
         </div>
     </aside>
 </div>

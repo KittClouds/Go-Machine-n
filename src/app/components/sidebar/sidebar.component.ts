@@ -4,7 +4,7 @@
 import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { LucideAngularModule, Plus, FolderPlus, BookOpen, Users, MapPin, Package, Lightbulb, Calendar, Clock, GitBranch, Layers, BookMarked, Film, Zap, Shield, User, Folder, PanelLeft, PanelLeftClose, FileText, Search, Undo, Redo, Sun, Moon, Brain, MoveVertical } from 'lucide-angular';
+import { LucideAngularModule, Plus, FolderPlus, BookOpen, Users, MapPin, Package, Lightbulb, Calendar, Clock, GitBranch, Layers, BookMarked, Film, Zap, Shield, User, Folder, PanelLeft, PanelLeftClose, FileText, Search, Undo, Redo, Sun, Moon, Brain, MoveVertical, RefreshCw, Share2 } from 'lucide-angular';
 import { Subscription } from 'rxjs';
 import { SidebarService } from '../../lib/services/sidebar.service';
 import { FolderService } from '../../lib/services/folder.service';
@@ -13,6 +13,7 @@ import { NoteEditorStore } from '../../lib/store/note-editor.store';
 import { ThemeService } from '../../lib/services/theme.service';
 import { EditorService } from '../../services/editor.service';
 import { ReorderService } from '../../lib/services/reorder.service';
+import { GoKittService } from '../../services/gokitt.service';
 import { FileTreeComponent } from './file-tree/file-tree.component';
 import { SearchPanelComponent } from '../search-panel/search-panel.component';
 import { NerPanelComponent } from './ner-panel/ner-panel.component';
@@ -56,14 +57,31 @@ export class SidebarComponent implements OnInit, OnDestroy {
     private folderService = inject(FolderService);
     private notesService = inject(NotesService);
     private noteEditorStore = inject(NoteEditorStore);
+    private goKittService = inject(GoKittService);
     private router = inject(Router);
 
     // Subscriptions
     private foldersSubscription?: Subscription;
     private notesSubscription?: Subscription;
 
-    // View Mode State
-    viewMode = signal<'files' | 'search' | 'ner'>('files');
+    // View Mode State - persisted to localStorage
+    private static readonly VIEW_STORAGE_KEY = 'kittclouds_sidebar_view';
+    viewMode = signal<'files' | 'search' | 'ner'>(this.loadSavedViewMode());
+
+    private loadSavedViewMode(): 'files' | 'search' | 'ner' {
+        if (typeof localStorage === 'undefined') return 'files';
+        const saved = localStorage.getItem(SidebarComponent.VIEW_STORAGE_KEY);
+        if (saved === 'files' || saved === 'search' || saved === 'ner') return saved;
+        return 'files';
+    }
+
+    setViewMode(mode: 'files' | 'search' | 'ner'): void {
+        this.viewMode.set(mode);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SidebarComponent.VIEW_STORAGE_KEY, mode);
+        }
+        this.sidebarService.open();
+    }
 
     // Icons for template
     readonly Plus = Plus;
@@ -81,6 +99,11 @@ export class SidebarComponent implements OnInit, OnDestroy {
     readonly Moon = Moon;
     readonly Brain = Brain; // Add Brain icon for NER
     readonly MoveVertical = MoveVertical; // Add MoveVertical icon for reorder mode
+    readonly RefreshCw = RefreshCw; // Add RefreshCw icon for graph scan
+    readonly Share2 = Share2; // Add Share2 icon for graph page
+
+    // Graph scan state
+    isScanning = signal(false);
 
     // Entity folder options for dropdown
     readonly entityFolderOptions = ENTITY_FOLDER_OPTIONS;
@@ -281,10 +304,6 @@ export class SidebarComponent implements OnInit, OnDestroy {
         }
     }
 
-    navigateToCalendar() {
-        this.router.navigate(['/calendar']);
-    }
-
     toggleSearch() {
         if (this.viewMode() !== 'search') {
             this.setViewMode('search');
@@ -301,8 +320,60 @@ export class SidebarComponent implements OnInit, OnDestroy {
         }
     }
 
-    setViewMode(mode: 'files' | 'search' | 'ner') {
-        this.viewMode.set(mode);
-        this.sidebarService.open();
+    // setViewMode is defined at the top of the class with localStorage persistence
+
+    // ─────────────────────────────────────────────────────────────
+    // Graph Scan
+    // ─────────────────────────────────────────────────────────────
+
+    async triggerGraphScan(): Promise<void> {
+        const note = this.noteEditorStore.currentNote();
+        if (!note) {
+            console.warn('[Sidebar] No note open to scan.');
+            return;
+        }
+
+        if (!this.goKittService.isReady) {
+            console.warn('[Sidebar] GoKitt WASM not ready.');
+            return;
+        }
+
+        this.isScanning.set(true);
+        console.log(`[Sidebar] 🔄 Triggering graph scan for note: ${note.title}`);
+
+        try {
+            const result = await this.goKittService.scan(note.markdownContent || '', {
+                worldId: note.narrativeId || 'global',
+                parentPath: note.folderId || undefined,
+            });
+
+            console.log('[Sidebar] ✅ Graph scan complete:', result);
+
+            // Persist to CozoDB
+            if (result && !result.error) {
+                const stats = this.goKittService.persistGraph(
+                    result,
+                    note.id,
+                    note.narrativeId || undefined
+                );
+                console.log('[Sidebar] 💾 Graph persisted:', stats);
+            }
+        } catch (error) {
+            console.error('[Sidebar] Graph scan failed:', error);
+        } finally {
+            this.isScanning.set(false);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Navigation
+    // ─────────────────────────────────────────────────────────────
+
+    navigateToCalendar(): void {
+        this.router.navigate(['/calendar']);
+    }
+
+    navigateToGraph(): void {
+        this.router.navigate(['/graph']);
     }
 }

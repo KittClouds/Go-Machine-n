@@ -27,6 +27,7 @@ import { setTextAlignCommand, indentCommand, outdentCommand } from '../nodes';
 
 // Registry for entity creation
 import { smartGraphRegistry } from '../../../../lib/registry';
+import { FONT_FAMILIES, FONT_SIZES } from '../../../../lib/constants/fonts';
 import type { EntityKind } from '../../../../lib/Scanner/types';
 
 @Component({
@@ -197,18 +198,15 @@ export class EditorToolbarComponent {
         { id: 'justify', label: 'Justify', icon: AlignJustify },
     ];
 
-    fontItems: DropdownItem[] = [
-        { id: 'Sans', label: 'Sans' },
-        { id: 'Serif', label: 'Serif' },
-        { id: 'Mono', label: 'Mono' },
-    ];
+    fontItems: DropdownItem[] = FONT_FAMILIES.map(f => ({
+        id: f.value,
+        label: f.label,
+    }));
 
-    sizeItems: DropdownItem[] = [
-        { id: 'small', label: 'Small' },
-        { id: 'normal', label: 'Normal' },
-        { id: 'large', label: 'Large' },
-        { id: 'huge', label: 'Huge' },
-    ];
+    sizeItems: DropdownItem[] = FONT_SIZES.map(s => ({
+        id: s.value,
+        label: s.label,
+    }));
 
     // Entity type dropdown items
     entityItems: DropdownItem[] = [
@@ -270,12 +268,15 @@ export class EditorToolbarComponent {
     }
 
     onFontAction(item: DropdownItem) {
-        const font = item.id === 'Mono' ? 'monospace' : item.id === 'Serif' ? 'serif' : 'sans-serif';
-        this.exec(setFontFamilyCommand, font);
+        const fontDef = FONT_FAMILIES.find(f => f.value === item.id);
+        const family = (!fontDef || item.id === 'default') ? null : fontDef.family;
+        this.exec(setFontFamilyCommand, family);
     }
 
     onSizeAction(item: DropdownItem) {
-        this.exec(setFontSizeCommand, item.id);
+        const sizeDef = FONT_SIZES.find(s => s.value === item.id);
+        const size = (!sizeDef || item.id === 'default') ? null : sizeDef.size;
+        this.exec(setFontSizeCommand, size);
     }
 
     setTextColor(color: string | null) {

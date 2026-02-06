@@ -19,19 +19,50 @@
 
         <div class="h-3 w-[1px] bg-white/20"></div>
 
-        <!-- Scope Selector -->
-        <app-scope-indicator></app-scope-indicator>
+        <!-- TTS Settings Popup -->
+        <app-tts-settings-popup></app-tts-settings-popup>
 
-        <button class="text-white/80 hover:text-white">
-            <i class="pi pi-volume-up text-[10px]"></i>
+        <!-- TTS Controls -->
+        @switch (ttsService.modelState()) {
+        @case ('idle') {
+        <button (click)="onLoadModelClick()"
+            class="text-white/80 hover:text-white transition-colors flex items-center gap-1"
+            title="Load Text-to-Speech Model">
+            <i class="pi pi-download text-[10px]"></i>
         </button>
+        }
+        @case ('loading') {
+        <button disabled class="text-teal-400 flex items-center gap-1 cursor-wait" title="Loading TTS model...">
+            <i class="pi pi-spin pi-spinner text-[10px]"></i>
+            <span class="text-[10px]">{{ ttsService.loadProgress() }}%</span>
+        </button>
+        }
+        @case ('ready') {
+        <button (click)="onSpeakClick()" class="transition-colors flex items-center gap-1"
+            [class.text-teal-400]="ttsService.isPlaying()" [class.text-white/80]="!ttsService.isPlaying()"
+            [class.hover:text-white]="!ttsService.isPlaying()"
+            [title]="ttsService.isPlaying() ? 'Stop reading' : 'Read note aloud'">
+            <i class="pi text-[10px]" [class.pi-volume-up]="!ttsService.isPlaying()"
+                [class.pi-stop]="ttsService.isPlaying()"></i>
+        </button>
+        }
+        @case ('error') {
+        <button (click)="onLoadModelClick()"
+            class="text-red-400 hover:text-red-300 transition-colors flex items-center gap-1"
+            title="Load failed - click to retry">
+            <i class="pi pi-exclamation-triangle text-[10px]"></i>
+        </button>
+        }
+        }
     </div>
 
     <!-- Right: Editor Stats (LIVE DATA) -->
     <div class="flex items-center gap-4 text-white/70">
         <span class="hover:text-white cursor-pointer transition-colors">{{ statsService.backlinks() }} backlinks</span>
         <span class="hover:text-white cursor-pointer transition-colors">{{ statsService.wordCount() }} words</span>
-        <span>{{ statsService.charCount() }} chars</span>
+        <om-gradient-text [text]="charCountText()" [gradientStart]="charGradientStart()"
+            [gradientEnd]="charGradientEnd()" styleClass="char-health-gradient">
+        </om-gradient-text>
         <span>{{ statsService.totalNotes() }} notes</span>
 
         <!-- Save Status -->

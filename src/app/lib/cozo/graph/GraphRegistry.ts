@@ -587,18 +587,30 @@ export class CozoGraphRegistry {
         const id = this.generateId();
         const now = Date.now();
 
-        cozoDb.runQuery(
-            `?[id, source_id, target_id, edge_type, confidence, narrative_id, created_at] <- [[$id, $source_id, $target_id, $edge_type, $confidence, $narrative_id, $created_at]] :put entity_edge {id, source_id, target_id, edge_type, confidence, narrative_id, created_at}`,
+        // Insert with all required fields matching entity_edge schema
+        const insertResult = cozoDb.runQuery(
+            `?[id, source_id, target_id, edge_type, confidence, extraction_methods, group_id, scope_type, created_at, valid_at, invalid_at, fact, weight, narrative_id] <- [[$id, $source_id, $target_id, $edge_type, $confidence, $extraction_methods, $group_id, $scope_type, $created_at, $valid_at, $invalid_at, $fact, $weight, $narrative_id]] :put entity_edge {id => source_id, target_id, edge_type, confidence, extraction_methods, group_id, scope_type, created_at, valid_at, invalid_at, fact, weight, narrative_id}`,
             {
                 id,
                 source_id: sourceId,
                 target_id: targetId,
                 edge_type: type,
                 confidence: provenance.confidence,
+                extraction_methods: [provenance.source || 'unknown'],
+                group_id: options?.namespace || 'default',
+                scope_type: 'note',
+                created_at: now,
+                valid_at: now,
+                invalid_at: null,
+                fact: provenance.context || null,
+                weight: 1.0,
                 narrative_id: options?.narrativeId ?? null,
-                created_at: now
             }
         );
+
+        if (insertResult.ok === false) {
+            console.error('[GraphRegistry] Failed to insert edge:', insertResult.message || insertResult.display);
+        }
 
         this.addProvenance(id, provenance);
         if (options?.inverseType) this.setRelationshipAttribute(id, 'inverseType', options.inverseType);

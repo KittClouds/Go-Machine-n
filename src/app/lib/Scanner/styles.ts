@@ -118,7 +118,15 @@ function getEntityStyle(kind: EntityKind, mode: HighlightMode): string {
     `;
   }
 
-  // Clean/Subtle mode - unstyled/invisible
+  // SUBTLE MODE: Text color only (no pill, no background)
+  if (mode === 'subtle') {
+    return `
+      color: hsl(var(${textColorVar}));
+      font-weight: 500;
+    `;
+  }
+
+  // Clean/Off mode - unstyled/invisible
   return '';
 }
 

@@ -45,7 +45,6 @@ const RELATIONSHIP_BIDIR = /(\[[A-Z_]+\|[^|\]]+(?:\|[^\]]+)?\]|\[\[[^\]]+\]\]|<<
 export async function scanForPatterns(text: string, noteId?: string): Promise<DecorationSpan[]> {
     const spans: DecorationSpan[] = [];
     const processedRanges: [number, number][] = [];
-    const entitiesToRegister: Array<{ label: string; kind: EntityKind; noteId: string }> = [];
 
     const overlaps = (from: number, to: number) => {
         return processedRanges.some(([s, e]) => from < e && to > s);
@@ -54,16 +53,11 @@ export async function scanForPatterns(text: string, noteId?: string): Promise<De
         processedRanges.push([from, to]);
     };
 
-    // 1. Entity Tags: [KIND|Label] - Collect for batch registration
+    // 1. Entity Tags: [KIND|Label]
     scanWithPattern(text, ENTITY_TAG_PATTERN, (match, index) => {
         const [fullMatch, kind, label] = match;
         if (overlaps(index, index + fullMatch.length)) return;
         addRange(index, index + fullMatch.length);
-
-        // Collect for batch registration
-        if (noteId) {
-            entitiesToRegister.push({ label, kind: (kind as EntityKind) || 'UNKNOWN', noteId });
-        }
 
         spans.push({
             type: 'entity',
@@ -75,17 +69,9 @@ export async function scanForPatterns(text: string, noteId?: string): Promise<De
         });
     });
 
-    // Batch register all collected entities (single hydration)
-    if (entitiesToRegister.length > 0) {
-        smartGraphRegistry.registerEntityBatch(
-            entitiesToRegister.map(e => ({
-                label: e.label,
-                kind: e.kind,
-                noteId: e.noteId,
-                options: { source: 'auto' as const },
-            }))
-        );
-    }
+    // NOTE: Pattern scanner should NOT persist entities to avoid phantom entities.
+    // Entity persistence should ONLY happen via GoKitt scan + persistGraph().
+    // This function only creates decoration spans for UI rendering.
 
 
     // 2. Entity References: [[entity]] - Lookup only

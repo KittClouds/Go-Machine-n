@@ -8,7 +8,7 @@ import type { EntityKind } from '../Scanner/types';
 // TYPES
 // ============================================
 
-export type HighlightMode = 'clean' | 'vivid' | 'focus' | 'off';
+export type HighlightMode = 'clean' | 'vivid' | 'subtle' | 'focus' | 'off';
 
 export interface HighlightSettings {
     /** Current highlighting mode */
@@ -39,6 +39,7 @@ export const DEFAULT_HIGHLIGHT_SETTINGS: HighlightSettings = {
 export const HIGHLIGHT_MODE_LABELS: Record<HighlightMode, string> = {
     clean: 'Clean',
     vivid: 'Vivid',
+    subtle: 'Subtle',
     focus: 'Focus',
     off: 'Off',
 };
@@ -47,6 +48,7 @@ export const HIGHLIGHT_MODE_LABELS: Record<HighlightMode, string> = {
 export const HIGHLIGHT_MODE_DESCRIPTIONS: Record<HighlightMode, string> = {
     clean: 'Minimal highlighting - shows entities on interaction',
     vivid: 'Full colorful highlighting - all entities always visible',
+    subtle: 'Text-only coloring without background pills',
     focus: 'Only highlight selected entity types',
     off: 'No entity highlighting',
 };

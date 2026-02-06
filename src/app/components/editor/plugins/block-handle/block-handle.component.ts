@@ -13,7 +13,7 @@ import { BlockMenuComponent } from './block-menu.component';
     imports: [CommonModule, LucideAngularModule, BlockMenuComponent],
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: `
-        <div class="relative group">
+        <div class="relative group" #handleContainer>
             <div class="flex items-center p-[2px] bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-sm shadow-sm transition-all select-none gap-0">
                 <!-- Plus Button -->
                 <div class="cursor-pointer text-teal-700 dark:text-teal-400 hover:text-teal-900 dark:hover:text-teal-200 p-[3px] rounded-[2px] hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors" 
@@ -37,14 +37,8 @@ import { BlockMenuComponent } from './block-menu.component';
             <!-- Menu Overlay -->
             <div *ngIf="isMenuOpen" 
                  class="absolute top-full left-0 mt-1 z-50">
-                 <app-block-menu [ctx]="ctx" [activeBlock]="activeBlock" (close)="isMenuOpen = false"></app-block-menu>
+                 <app-block-menu [ctx]="ctx" [activeBlock]="activeBlock" (close)="closeMenu()"></app-block-menu>
             </div>
-        </div>
-        
-        <!-- Backdrop for closing menu -->
-        <div *ngIf="isMenuOpen" 
-             class="fixed inset-0 z-40 bg-transparent" 
-             (click)="isMenuOpen = false">
         </div>
     `,
     styles: [`
@@ -59,6 +53,8 @@ export class BlockHandleComponent {
     @Input() onHide!: () => void;
     @Input() activeBlock: any;
 
+    @ViewChild('handleContainer') handleContainer!: ElementRef;
+
     isMenuOpen = false;
 
     readonly GripIcon = GripVertical;
@@ -69,6 +65,23 @@ export class BlockHandleComponent {
     toggleMenu(e: MouseEvent) {
         e.stopPropagation();
         this.isMenuOpen = !this.isMenuOpen;
+        this.cdr.markForCheck();
+    }
+
+    closeMenu() {
+        this.isMenuOpen = false;
+        this.cdr.markForCheck();
+    }
+
+    @HostListener('document:mousedown', ['$event'])
+    onDocumentClick(event: MouseEvent) {
+        if (!this.isMenuOpen) return;
+
+        // Check if click is outside the handle container
+        if (this.handleContainer && !this.handleContainer.nativeElement.contains(event.target)) {
+            this.isMenuOpen = false;
+            this.cdr.markForCheck();
+        }
     }
 
     // Original adds new paragraph directly (kept for reference, or if we want to restore drag-enter behavior)

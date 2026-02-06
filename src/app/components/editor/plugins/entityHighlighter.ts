@@ -107,14 +107,25 @@ function handleSpanClick(span: DecorationSpan): void {
  * IMPORTANT: Click handler is attached directly to widget element
  */
 function createWidget(span: DecorationSpan, api: ReturnType<typeof getHighlighterApi>): HTMLElement {
+    const mode = api.getMode();
     const widget = document.createElement('span');
-    widget.className = api.getClass(span) + ' entity-widget';
-    widget.style.cssText = api.getStyle(span);
+
+    if (mode === 'subtle') {
+        // Subtle mode: Text color only, no pill background
+        widget.className = 'entity-widget entity-widget-subtle';
+        const colorStyle = getEditingStyle(span);
+        widget.style.cssText = `${colorStyle} background: transparent; padding: 0; border: none; border-radius: 0; display: inline; box-shadow: none; cursor: pointer;`;
+    } else {
+        // Normal pill mode (Vivid/Clean/Focus)
+        widget.className = api.getClass(span) + ' entity-widget';
+        widget.style.cssText = api.getStyle(span);
+        widget.style.cursor = 'pointer';
+    }
+
     widget.textContent = span.displayText || span.label;
     widget.setAttribute('data-span-type', span.type);
     widget.setAttribute('data-target', span.target || span.label);
     widget.setAttribute('title', getTooltip(span));
-    widget.style.cursor = 'pointer';
 
     // DIRECT click handler - most reliable
     widget.addEventListener('click', (e) => {

@@ -1,11 +1,19 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { smartGraphRegistry } from '../lib/registry';
 import type { DecorationSpan } from '../lib/Scanner';
 import { db } from '../lib/dexie/db';
+import { graphRegistry, type RelationshipProvenance } from '../lib/cozo/graph';
+import type { EntityKind } from '../lib/cozo/utils';
 
 // =============================================================================
 // Types for Worker Communication
 // =============================================================================
+
+/** GoKitt graph data directly from scan result */
+export interface GoKittGraphData {
+    nodes: Record<string, { Label?: string; label?: string; Kind?: string; kind?: string; Aliases?: string[] }>;
+    edges: Array<{ Source?: string; source?: string; Target?: string; target?: string; Type?: string; type?: string; Confidence?: number; confidence?: number }>;
+}
 
 /** Provenance context for folder-aware graph projection */
 export interface ProvenanceContext {
@@ -51,6 +59,10 @@ export class GoKittService {
     // Promise resolvers for pending requests
     private pendingRequests = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
     private nextRequestId = 1;
+
+    // Last graph data from GoKitt scan - PRIMARY source for graph visualization
+    private _lastGraphData = signal<GoKittGraphData | null>(null);
+    readonly lastGraphData = this._lastGraphData.asReadonly();
 
     constructor() {
         console.log('[GoKittService] Service ready (worker-based)');
@@ -247,11 +259,129 @@ export class GoKittService {
             console.log('[GoKittService.scan] Graph Nodes:', result.graph?.Nodes ? Object.keys(result.graph.Nodes).length : 0);
             console.log('[GoKittService.scan] Graph Edges:', result.graph?.Edges?.length ?? 0);
 
+            // Store graph data for direct consumption by graph visualization
+            if (result.graph) {
+                this._lastGraphData.set({
+                    nodes: result.graph.Nodes || result.graph.nodes || {},
+                    edges: result.graph.Edges || result.graph.edges || []
+                });
+            }
+
             return result;
         } catch (e) {
             console.error('[GoKittService] Scan error:', e);
             return { error: String(e) };
         }
+    }
+
+    /**
+     * Persist graph scan results to CozoDB
+     * Maps GoKitt nodes → entities, edges → entity_edge
+     * 
+     * @param scanResult - Result from scan() containing graph.Nodes and graph.Edges
+     * @param noteId - The note ID for provenance tracking
+     * @param narrativeId - Optional narrative scope for the entities
+     * @returns Stats on persisted nodes/edges
+     */
+    persistGraph(
+        scanResult: any,
+        noteId: string,
+        narrativeId?: string
+    ): { nodesCreated: number; nodesUpdated: number; edgesCreated: number; edgesUpdated: number } {
+        const stats = { nodesCreated: 0, nodesUpdated: 0, edgesCreated: 0, edgesUpdated: 0 };
+
+        if (!scanResult?.graph) {
+            console.warn('[GoKittService.persistGraph] No graph in scan result');
+            return stats;
+        }
+
+        // GoKitt returns lowercase keys: { nodes: {...}, edges: [...] }
+        const nodes = scanResult.graph.nodes || scanResult.graph.Nodes;
+        const edges = scanResult.graph.edges || scanResult.graph.Edges;
+
+        console.log('[GoKittService.persistGraph] Nodes:', nodes ? Object.keys(nodes).length : 0);
+        console.log('[GoKittService.persistGraph] Edges:', edges?.length ?? 0);
+
+        // ─────────────────────────────────────────────────────────────
+        // Persist Nodes → entities table
+        // ─────────────────────────────────────────────────────────────
+        if (nodes && typeof nodes === 'object') {
+            const nodeIdMap = new Map<string, string>(); // GoKitt ID → CozoDB ID
+
+            for (const [goKittId, node] of Object.entries(nodes) as [string, any][]) {
+                const label = node.Label || node.label || goKittId;
+                const kind = (node.Kind || node.kind || 'UNKNOWN').toUpperCase() as EntityKind;
+
+                // Check if entity already exists
+                const existing = graphRegistry.findEntityByLabel(label);
+
+                if (existing) {
+                    // Entity exists - increment mention count
+                    const currentCount = existing.mentionsByNote?.get(noteId) ?? 0;
+                    graphRegistry.updateNoteMentions(existing.id, noteId, currentCount + 1);
+                    nodeIdMap.set(goKittId, existing.id);
+                    stats.nodesUpdated++;
+                    console.log(`[GoKittService.persistGraph] Updated existing entity: ${label}`);
+                } else {
+                    // Create new entity
+                    const entity = graphRegistry.registerEntity(label, kind, noteId, {
+                        narrativeId,
+                        aliases: node.Aliases || node.aliases || []
+                    });
+                    nodeIdMap.set(goKittId, entity.id);
+                    stats.nodesCreated++;
+                    console.log(`[GoKittService.persistGraph] Created entity: ${label} (${kind})`);
+                }
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // Persist Edges → entity_edge table  
+            // ─────────────────────────────────────────────────────────────
+            if (edges && Array.isArray(edges)) {
+                for (const edge of edges) {
+                    const sourceGoKittId = edge.Source || edge.source;
+                    const targetGoKittId = edge.Target || edge.target;
+                    const edgeType = (edge.Type || edge.type || 'RELATED_TO').toUpperCase();
+                    const confidence = edge.Confidence ?? edge.confidence ?? 0.8;
+
+                    // Map GoKitt IDs to CozoDB IDs
+                    const sourceId = nodeIdMap.get(sourceGoKittId);
+                    const targetId = nodeIdMap.get(targetGoKittId);
+
+                    if (!sourceId || !targetId) {
+                        console.warn(`[GoKittService.persistGraph] Skipping edge - missing node mapping: ${sourceGoKittId} -> ${targetGoKittId}`);
+                        continue;
+                    }
+
+                    // Build provenance
+                    const provenance: RelationshipProvenance = {
+                        source: 'gokitt_scan',
+                        originId: noteId,
+                        confidence,
+                        timestamp: new Date(),
+                        context: `Extracted from note via Reality Layer scan`
+                    };
+
+                    // Check if relationship already exists (addRelationship handles dedup)
+                    const existingRel = graphRegistry.findRelationship(sourceId, targetId, edgeType);
+
+                    graphRegistry.addRelationship(sourceId, targetId, edgeType, provenance, {
+                        narrativeId
+                    });
+
+                    if (existingRel) {
+                        stats.edgesUpdated++;
+                        console.log(`[GoKittService.persistGraph] Updated edge: ${edgeType}`);
+                    } else {
+                        stats.edgesCreated++;
+                        console.log(`[GoKittService.persistGraph] Created edge: ${edgeType} (${sourceId} → ${targetId})`);
+                    }
+                }
+            }
+        }
+
+        console.log(`[GoKittService.persistGraph] ✅ Complete:`, stats);
+        return stats;
     }
 
     /**

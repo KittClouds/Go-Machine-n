@@ -20,6 +20,7 @@ const ENTITY_KINDS: EntityKind[] = [
 const MODE_COLORS: Record<HighlightMode, string> = {
     clean: 'text-teal-400',
     vivid: 'text-violet-400',
+    subtle: 'text-blue-400',
     focus: 'text-amber-400',
     off: 'text-muted-foreground',
 };
@@ -28,6 +29,7 @@ const MODE_COLORS: Record<HighlightMode, string> = {
 const MODE_ICONS: Record<HighlightMode, string> = {
     clean: 'pi pi-eye',
     vivid: 'pi pi-sparkles',
+    subtle: 'pi pi-pencil',
     focus: 'pi pi-bullseye',
     off: 'pi pi-eye-slash',
 };
@@ -46,7 +48,7 @@ export class HighlightingModeToggleComponent {
     isOpen = signal(false);
 
     // Static data for template
-    modes: HighlightMode[] = ['clean', 'vivid', 'focus', 'off'];
+    modes: HighlightMode[] = ['clean', 'vivid', 'subtle', 'focus', 'off'];
     entityKinds = ENTITY_KINDS.sort();
     labels = HIGHLIGHT_MODE_LABELS;
     descriptions = HIGHLIGHT_MODE_DESCRIPTIONS;

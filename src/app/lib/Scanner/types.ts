@@ -115,7 +115,7 @@ export interface ScanResult {
 /**
  * Highlighting mode
  */
-export type HighlightMode = 'vivid' | 'clean' | 'focus' | 'off';
+export type HighlightMode = 'vivid' | 'clean' | 'subtle' | 'focus' | 'off';
 
 /**
  * Configuration for the highlighter

@@ -13,9 +13,10 @@ import type { TreeNode } from '../arborist/types';
  * The type of scope determines query behavior:
  * - 'note': Show only entities from this specific note
  * - 'folder': Show aggregated entities from all notes in folder subtree
+ * - 'act': Show entities from this Act's subtree (NEW: scope boundary within narrative)
  * - 'narrative': Show all entities from entire narrative vault
  */
-export type ScopeType = 'note' | 'folder' | 'narrative';
+export type ScopeType = 'note' | 'folder' | 'act' | 'narrative';
 
 /**
  * The currently active scope
@@ -24,6 +25,7 @@ export interface ActiveScope {
     type: ScopeType;
     id: string;
     narrativeId?: string;
+    actId?: string;  // NEW: Track which Act we're inside (for act scope)
 }
 
 /**
@@ -35,6 +37,7 @@ export interface NodeScope {
     scopeType: ScopeType;
     scopeId: string;
     narrativeId?: string;
+    actId?: string;  // NEW: Track which Act we're inside
 }
 
 /**
@@ -49,17 +52,50 @@ export const GLOBAL_SCOPE: ActiveScope = {
 // =============================================================================
 // SCOPE SERVICE
 // =============================================================================
+const SCOPE_STORAGE_KEY = 'kittclouds_active_scope';
 
 @Injectable({
     providedIn: 'root'
 })
 export class ScopeService {
-    // Active scope state
-    private _activeScope = signal<ActiveScope>(GLOBAL_SCOPE);
+    // Active scope state - initialized from localStorage
+    private _activeScope = signal<ActiveScope>(this.loadPersistedScope());
 
     // Getters
     get activeScope() {
         return this._activeScope;
+    }
+
+    /**
+     * Load persisted scope from localStorage
+     */
+    private loadPersistedScope(): ActiveScope {
+        if (typeof localStorage === 'undefined') return GLOBAL_SCOPE;
+        try {
+            const stored = localStorage.getItem(SCOPE_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                // Validate structure
+                if (parsed && parsed.type && parsed.id) {
+                    return parsed as ActiveScope;
+                }
+            }
+        } catch (e) {
+            console.warn('[ScopeService] Failed to load persisted scope:', e);
+        }
+        return GLOBAL_SCOPE;
+    }
+
+    /**
+     * Persist scope to localStorage
+     */
+    private persistScope(scope: ActiveScope): void {
+        if (typeof localStorage === 'undefined') return;
+        try {
+            localStorage.setItem(SCOPE_STORAGE_KEY, JSON.stringify(scope));
+        } catch (e) {
+            console.warn('[ScopeService] Failed to persist scope:', e);
+        }
     }
 
     // Computed: Active narrative ID (convenience for Codex queries)
@@ -73,9 +109,11 @@ export class ScopeService {
      * Compute the scope for a tree node based on its position.
      *
      * Rules:
-     * 1. If node is inside a narrative vault → scope = 'narrative'
-     * 2. If node is a folder (not narrative) → scope = 'folder'
-     * 3. If node is a note → scope = 'note'
+     * 1. If node IS an ACT folder → scope = 'act' (ACT is scope boundary)
+     * 2. If node is inside a narrative and has ACT ancestor → scope = 'act' (scoped to that act)
+     * 3. If node is inside a narrative but no ACT ancestor → scope = 'narrative'
+     * 4. If node is a folder (not in narrative) → scope = 'folder'
+     * 5. If node is a note (not in narrative) → scope = 'note'
      */
     computeNodeScope(node: TreeNode): NodeScope {
         const nodeId = node.id;
@@ -83,6 +121,21 @@ export class ScopeService {
 
         // Check if inside a narrative vault
         if (node.narrativeId) {
+            // Check if this node IS an ACT
+            if (nodeType === 'folder' && node.entityKind === 'ACT') {
+                return {
+                    nodeId,
+                    nodeType,
+                    scopeType: 'act',
+                    scopeId: nodeId,
+                    narrativeId: node.narrativeId,
+                    actId: nodeId,
+                };
+            }
+
+            // NOTE: For child nodes of an ACT, we need to find the ACT ancestor
+            // This is handled in computeActiveScopeAsync() since it requires DB lookup
+            // For now, return narrative scope (will be upgraded if ACT found)
             return {
                 nodeId,
                 nodeType,
@@ -92,7 +145,7 @@ export class ScopeService {
             };
         }
 
-        // Folder scope
+        // Folder scope (outside narrative)
         if (nodeType === 'folder') {
             return {
                 nodeId,
@@ -103,7 +156,7 @@ export class ScopeService {
             };
         }
 
-        // Note scope
+        // Note scope (outside narrative)
         return {
             nodeId,
             nodeType,
@@ -114,7 +167,8 @@ export class ScopeService {
     }
 
     /**
-     * Compute active scope from tree selection
+     * Compute active scope from tree selection (sync version for backwards compat)
+     * NOTE: Use computeActiveScopeAsync for proper ACT ancestor detection
      */
     computeActiveScope(selectedNode: TreeNode | null): ActiveScope {
         if (!selectedNode) {
@@ -127,7 +181,86 @@ export class ScopeService {
             type: nodeScope.scopeType,
             id: nodeScope.scopeId,
             narrativeId: nodeScope.narrativeId,
+            actId: nodeScope.actId,
         };
+    }
+
+    /**
+     * Compute active scope with async ACT ancestor lookup
+     * This properly detects if a node is inside an ACT folder
+     */
+    async computeActiveScopeAsync(selectedNode: TreeNode | null): Promise<ActiveScope> {
+        if (!selectedNode) {
+            return GLOBAL_SCOPE;
+        }
+
+        // If not in a narrative, use sync computation
+        if (!selectedNode.narrativeId) {
+            return this.computeActiveScope(selectedNode);
+        }
+
+        // If this IS an ACT, return act scope
+        if (selectedNode.type === 'folder' && selectedNode.entityKind === 'ACT') {
+            return {
+                type: 'act',
+                id: selectedNode.id,
+                narrativeId: selectedNode.narrativeId,
+                actId: selectedNode.id,
+            };
+        }
+
+        // Check for ACT ancestor
+        const actAncestor = await this.findActAncestor(selectedNode);
+        if (actAncestor) {
+            return {
+                type: 'act',
+                id: actAncestor.id,
+                narrativeId: selectedNode.narrativeId,
+                actId: actAncestor.id,
+            };
+        }
+
+        // No ACT ancestor - use full narrative scope
+        return {
+            type: 'narrative',
+            id: selectedNode.narrativeId,
+            narrativeId: selectedNode.narrativeId,
+        };
+    }
+
+    /**
+     * Find the nearest ACT ancestor folder for a given node
+     */
+    private async findActAncestor(node: TreeNode): Promise<Folder | null> {
+        // Get the parent folder ID
+        let parentId: string | undefined;
+
+        if (node.type === 'note') {
+            // For notes, get the folderId from the note
+            const note = await db.notes.get(node.id);
+            parentId = note?.folderId;
+        } else {
+            parentId = node.parentId;
+        }
+
+        // Walk up the tree looking for an ACT
+        while (parentId) {
+            const folder = await db.folders.get(parentId);
+            if (!folder) break;
+
+            if (folder.entityKind === 'ACT') {
+                return folder;
+            }
+
+            // Stop if we hit the narrative root
+            if (folder.isNarrativeRoot) {
+                break;
+            }
+
+            parentId = folder.parentId;
+        }
+
+        return null;
     }
 
     /**
@@ -157,13 +290,16 @@ export class ScopeService {
      */
     setScope(scope: ActiveScope): void {
         this._activeScope.set(scope);
+        this.persistScope(scope);
     }
 
     /**
-     * Set scope from a selected tree node
+     * Set scope from a selected tree node (async for proper ACT detection)
      */
-    setScopeFromNode(node: TreeNode | null): void {
-        this._activeScope.set(this.computeActiveScope(node));
+    async setScopeFromNode(node: TreeNode | null): Promise<void> {
+        const scope = await this.computeActiveScopeAsync(node);
+        this._activeScope.set(scope);
+        this.persistScope(scope);
     }
 
     /**
@@ -171,6 +307,7 @@ export class ScopeService {
      */
     resetToGlobal(): void {
         this._activeScope.set(GLOBAL_SCOPE);
+        this.persistScope(GLOBAL_SCOPE);
     }
 
     // ==========================================================================
@@ -191,6 +328,12 @@ export class ScopeService {
                 .equals(scope.id)
                 .toArray();
             return notes.map(n => n.id);
+        }
+
+        // ACT scope: Get all notes in this Act's folder subtree
+        if (scope.type === 'act') {
+            const actId = scope.actId || scope.id;
+            return this.getNotesInFolderTree(actId);
         }
 
         if (scope.type === 'folder') {
@@ -226,29 +369,55 @@ export class ScopeService {
     }
 
     /**
-     * Get entities in the current scope
+     * Get entities in the current scope.
+     * 
+     * Finding logic:
+     * 1. Entities with matching `narrativeId` (direct assignment)
+     * 2. Entities whose `firstNote` is in the scope's notes
+     * 3. Entities mentioned in any note within the scope
      */
     async getEntitiesInScope(scope: ActiveScope): Promise<Entity[]> {
+        // Global scope: return all entities
+        if (scope.id === 'vault:global') {
+            return db.entities.toArray();
+        }
+
+        const noteIds = await this.getNotesInScope(scope);
+        const entityMap = new Map<string, Entity>();
+
+        // 1. Direct: entities with matching narrativeId (for narrative scopes)
         if (scope.type === 'narrative') {
-            return db.entities
+            const directEntities = await db.entities
                 .where('narrativeId')
                 .equals(scope.id)
                 .toArray();
+            for (const e of directEntities) {
+                entityMap.set(e.id, e);
+            }
         }
 
-        // For folder/note scopes, get all entities from notes in scope
-        const noteIds = await this.getNotesInScope(scope);
-        const mentions = await db.mentions
-            .where('noteId')
-            .anyOf(noteIds)
-            .toArray();
+        // 2. Entities whose firstNote is within the scope's notes
+        if (noteIds.length > 0) {
+            const allEntities = await db.entities.toArray();
+            for (const e of allEntities) {
+                if (e.firstNote && noteIds.includes(e.firstNote)) {
+                    entityMap.set(e.id, e);
+                }
+            }
 
-        const entityIds = [...new Set(mentions.map(m => m.entityId))];
-        const entities = await db.entities
-            .where('id')
-            .anyOf(entityIds)
-            .toArray();
+            // 3. Entities mentioned in notes within scope
+            const mentions = await db.mentions
+                .where('noteId')
+                .anyOf(noteIds)
+                .toArray();
+            const mentionedIds = new Set(mentions.map(m => m.entityId));
+            for (const e of allEntities) {
+                if (mentionedIds.has(e.id)) {
+                    entityMap.set(e.id, e);
+                }
+            }
+        }
 
-        return entities;
+        return Array.from(entityMap.values());
     }
 }
