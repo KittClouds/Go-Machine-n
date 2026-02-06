@@ -14,6 +14,7 @@ import (
 	"github.com/kittclouds/gokitt/pkg/hierarchy"
 	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/reality/builder"
+	"github.com/kittclouds/gokitt/pkg/reality/pcst"
 	"github.com/kittclouds/gokitt/pkg/reality/projection"
 	"github.com/kittclouds/gokitt/pkg/resorank"
 	"github.com/kittclouds/gokitt/pkg/scanner/conductor"
@@ -466,9 +467,13 @@ func scan(this js.Value, args []js.Value) interface{} {
 	conceptGraph := projection.Project(cstRoot, pipeline.GetMatcher(), entityMap, text, prov)
 	conceptGraph.ToSerializable() // Populate edges for JSON output
 
-	// OPTIMIZATION: Skip PCST for now - Angular doesn't use it
-	// solver := pcst.NewIpcstSolver(pcst.DefaultConfig())
-	// story, _ := solver.Solve(conceptGraph, prizes, "")
+	// 4. PCST (The Summary) - Still computed, just not serialized
+	prizes := make(map[string]float64)
+	for id := range conceptGraph.Nodes {
+		prizes[id] = 1.0
+	}
+	solver := pcst.NewIpcstSolver(pcst.DefaultConfig())
+	_, _ = solver.Solve(conceptGraph, prizes, "") // Run but don't return
 
 	duration := time.Since(start).Microseconds()
 
