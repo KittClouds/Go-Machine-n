@@ -14,7 +14,6 @@ import (
 	"github.com/kittclouds/gokitt/pkg/hierarchy"
 	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
 	"github.com/kittclouds/gokitt/pkg/reality/builder"
-	"github.com/kittclouds/gokitt/pkg/reality/pcst"
 	"github.com/kittclouds/gokitt/pkg/reality/projection"
 	"github.com/kittclouds/gokitt/pkg/resorank"
 	"github.com/kittclouds/gokitt/pkg/scanner/conductor"
@@ -420,6 +419,7 @@ func getEntityIDs(entities []*implicitmatcher.EntityInfo) []string {
 
 // scan processes text and returns result
 // Args: [text string, provenanceJSON string (optional)]
+// Returns: SLIM response with only graph data (nodes/edges) + timing
 func scan(this js.Value, args []js.Value) interface{} {
 	if len(args) < 1 {
 		return errorResult("scan requires at least 1 argument: text")
@@ -466,24 +466,37 @@ func scan(this js.Value, args []js.Value) interface{} {
 	conceptGraph := projection.Project(cstRoot, pipeline.GetMatcher(), entityMap, text, prov)
 	conceptGraph.ToSerializable() // Populate edges for JSON output
 
-	// 4. PCST (The Summary)
-	// Assign uniform prizes to all nodes for now
-	prizes := make(map[string]float64)
-	for id := range conceptGraph.Nodes {
-		prizes[id] = 1.0
-	}
-
-	solver := pcst.NewIpcstSolver(pcst.DefaultConfig())
-	story, _ := solver.Solve(conceptGraph, prizes, "")
+	// OPTIMIZATION: Skip PCST for now - Angular doesn't use it
+	// solver := pcst.NewIpcstSolver(pcst.DefaultConfig())
+	// story, _ := solver.Solve(conceptGraph, prizes, "")
 
 	duration := time.Since(start).Microseconds()
 
-	// Wrap in a response object including timing
+	// OPTIMIZATION: Slim response - only fields JS actually uses
+	// Removes: scan, cst, pcst (unused by Angular)
+	slimNodes := make(map[string]interface{}, len(conceptGraph.Nodes))
+	for id, node := range conceptGraph.Nodes {
+		slimNodes[id] = map[string]interface{}{
+			"label": node.Label,
+			"kind":  node.Kind,
+		}
+	}
+
+	slimEdges := make([]interface{}, 0, len(conceptGraph.Edges))
+	for _, edge := range conceptGraph.Edges {
+		slimEdges = append(slimEdges, map[string]interface{}{
+			"source":     edge.Source,
+			"target":     edge.Target,
+			"type":       edge.Relation,
+			"confidence": edge.Weight,
+		})
+	}
+
 	response := map[string]interface{}{
-		"scan":      result,
-		"cst":       cstRoot,
-		"graph":     conceptGraph,
-		"pcst":      story,
+		"graph": map[string]interface{}{
+			"nodes": slimNodes,
+			"edges": slimEdges,
+		},
 		"timing_us": duration,
 	}
 
