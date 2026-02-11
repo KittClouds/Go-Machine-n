@@ -1,8 +1,9 @@
 // src/app/lib/services/theme.service.ts
-// Theme service with localStorage persistence
+// Theme service with Dexie settings persistence
 
 import { Injectable, signal, Renderer2, RendererFactory2, Inject, PLATFORM_ID } from '@angular/core';
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
+import { getSetting, setSetting } from '../dexie/settings.service';
 
 const THEME_STORAGE_KEY = 'kittclouds-theme';
 
@@ -23,7 +24,7 @@ export class ThemeService {
     }
 
     /**
-     * Initialize theme from localStorage or system preference.
+     * Initialize theme from Dexie settings or system preference.
      * Runs on app startup.
      */
     private initializeTheme(): void {
@@ -31,8 +32,8 @@ export class ThemeService {
 
         let prefersDark = true; // Default to dark
 
-        // Check localStorage first
-        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        // Check Dexie settings first
+        const stored = getSetting<string | null>(THEME_STORAGE_KEY, null);
         if (stored !== null) {
             prefersDark = stored === 'dark';
             console.log(`[ThemeService] Restored theme from storage: ${stored}`);
@@ -106,7 +107,7 @@ export class ThemeService {
 
     private persistTheme(dark: boolean): void {
         if (!this.isBrowser) return;
-        localStorage.setItem(THEME_STORAGE_KEY, dark ? 'dark' : 'light');
+        setSetting(THEME_STORAGE_KEY, dark ? 'dark' : 'light');
         console.log(`[ThemeService] Persisted theme: ${dark ? 'dark' : 'light'}`);
     }
 }

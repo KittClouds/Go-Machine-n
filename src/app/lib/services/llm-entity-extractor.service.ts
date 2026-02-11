@@ -1,19 +1,18 @@
 /**
  * LLM Entity Extractor Service
  * 
- * Extracts entities from notes using LLM and adds them to the registry.
+ * Extracts entities from notes using LLM via Go WASM.
  * 
- * Uses LlmBatchService which:
- * - Has its OWN settings (separate from AI Chat)
- * - Does NOT use streaming
- * - Returns complete responses only
+ * Uses GoKittService for actual extraction (Go handles prompt+LLM+parsing).
+ * LlmBatchService retained for configuration settings only.
  */
 
 import { Injectable, inject, signal } from '@angular/core';
 import * as ops from '../operations';
 import { smartGraphRegistry } from '../registry';
 import { LlmBatchService } from './llm-batch.service';
-import { ENTITY_KINDS, type EntityKind, isEntityKind } from '../cozo/utils';
+import { GoKittService } from '../../services/gokitt.service';
+import { type EntityKind, isEntityKind } from '../cozo/utils';
 
 export interface ExtractedEntity {
     label: string;
@@ -35,38 +34,16 @@ export interface CommitResult {
     skipped: number;
 }
 
-const SYSTEM_PROMPT = `You are an entity extraction assistant. Return ONLY a valid JSON array. No markdown, no explanation. Start with [ and end with ].`;
-
-const USER_PROMPT_TEMPLATE = `Extract named entities from this text. Return a JSON array.
-
-Each object:
-- "label": Canonical name (string)
-- "kind": One of: ${ENTITY_KINDS.join(', ')}
-- "confidence": 0.0-1.0
-
-KIND GUIDE:
-- CHARACTER: Main characters
-- NPC: Side characters
-- LOCATION: Places, buildings
-- ITEM: Objects, artifacts
-- FACTION: Organizations, groups
-- EVENT: Historical events
-- CONCEPT: Magic systems, lore
-
-Rules:
-1. Only proper nouns
-2. Skip generic terms
-3. Deduplicate
-
-TEXT:
-`;
-
 @Injectable({
     providedIn: 'root'
 })
 export class LlmEntityExtractorService {
-    // Uses dedicated batch service - NOT the chat services
+    // Config service for settings UI
     private llmBatch = inject(LlmBatchService);
+    // Go WASM bridge for actual extraction
+    private goKitt = inject(GoKittService);
+    // Track whether Go batch was initialized
+    private goBatchInitialized = false;
 
     // Extraction state
     isExtracting = signal(false);
@@ -90,22 +67,50 @@ export class LlmEntityExtractorService {
     }
 
     /**
-     * Extract entities from a single note's text
+     * Ensure Go batch service is initialized with current config.
+     */
+    private async ensureGoBatchInit(): Promise<void> {
+        if (this.goBatchInitialized) return;
+
+        const cfg = this.llmBatch.getConfig();
+        const result = await this.goKitt.batchInit({
+            provider: cfg.provider,
+            googleApiKey: cfg.googleApiKey,
+            googleModel: cfg.googleModel,
+            openRouterApiKey: cfg.openRouterApiKey,
+            openRouterModel: cfg.openRouterModel
+        });
+
+        if (result.success) {
+            this.goBatchInitialized = true;
+            console.log('[LlmEntityExtractor] Go batch initialized:', result.provider, result.model);
+        } else {
+            console.error('[LlmEntityExtractor] Go batch init failed:', result.error);
+            throw new Error(`Go batch init failed: ${result.error}`);
+        }
+    }
+
+    /**
+     * Extract entities from a single note's text via Go WASM.
+     * Go handles prompt construction, LLM call, and JSON parsing.
      */
     async extractFromNote(noteId: string, text: string): Promise<ExtractedEntity[]> {
         if (!text.trim()) return [];
 
-        // Limit text to avoid token limits
-        const truncatedText = text.substring(0, 6000);
-        const userPrompt = USER_PROMPT_TEMPLATE + truncatedText;
-
         try {
-            // Use dedicated batch service - NO STREAMING
-            const response = await this.llmBatch.complete(userPrompt, SYSTEM_PROMPT);
+            await this.ensureGoBatchInit();
 
-            // Parse JSON from response
-            const entities = this.parseEntityResponse(response, noteId);
-            return entities;
+            // Go handles prompt + LLM call + parsing
+            const entities = await this.goKitt.extractEntities(text);
+
+            // Stamp sourceNoteId (Go doesn't know about note IDs)
+            return (entities || []).map((e: any) => ({
+                label: e.label || '',
+                kind: isEntityKind(e.kind) ? e.kind : 'CHARACTER' as EntityKind,
+                aliases: e.aliases,
+                confidence: e.confidence ?? 0.8,
+                sourceNoteId: noteId
+            }));
         } catch (err) {
             console.error('[LlmEntityExtractor] Extraction failed for note:', noteId, err);
             return [];
@@ -248,88 +253,5 @@ export class LlmEntityExtractorService {
         }
 
         return result;
-    }
-
-    /**
-     * Parse LLM response into entities
-     */
-    private parseEntityResponse(response: string, sourceNoteId: string): ExtractedEntity[] {
-        try {
-            let jsonStr = response.trim();
-
-            // Remove markdown code block if present
-            if (jsonStr.startsWith('```')) {
-                const lines = jsonStr.split('\n');
-                lines.shift();
-                if (lines[lines.length - 1].startsWith('```')) {
-                    lines.pop();
-                }
-                jsonStr = lines.join('\n');
-            }
-
-            // Try parsing
-            let parsed: any[];
-            try {
-                parsed = JSON.parse(jsonStr);
-            } catch {
-                console.warn('[LlmEntityExtractor] JSON parse failed, attempting repair...');
-                parsed = this.repairTruncatedJson(jsonStr);
-            }
-
-            if (!Array.isArray(parsed)) {
-                console.warn('[LlmEntityExtractor] Response is not an array');
-                return [];
-            }
-
-            const entities: ExtractedEntity[] = [];
-
-            for (const item of parsed) {
-                if (!item.label || !item.kind) continue;
-
-                const kindUpper = String(item.kind).toUpperCase();
-                if (!isEntityKind(kindUpper)) {
-                    console.warn('[LlmEntityExtractor] Unknown kind:', item.kind);
-                    continue;
-                }
-
-                entities.push({
-                    label: String(item.label).trim(),
-                    kind: kindUpper as EntityKind,
-                    aliases: Array.isArray(item.aliases) ? item.aliases.map((a: any) => String(a)) : undefined,
-                    confidence: typeof item.confidence === 'number' ? item.confidence : 0.8,
-                    sourceNoteId
-                });
-            }
-
-            console.log(`[LlmEntityExtractor] Parsed ${entities.length} entities`);
-            return entities;
-        } catch (err) {
-            console.error('[LlmEntityExtractor] Failed to parse:', err);
-            console.log('[LlmEntityExtractor] Raw response:', response.substring(0, 500));
-            return [];
-        }
-    }
-
-    /**
-     * Attempt to repair truncated JSON
-     */
-    private repairTruncatedJson(jsonStr: string): any[] {
-        const results: any[] = [];
-        const pattern = /\{\s*"label"\s*:\s*"[^"]+"\s*,\s*"kind"\s*:\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*:\s*(?:"[^"]*"|[\d.]+|\[[^\]]*\]|true|false|null))*\s*\}/g;
-
-        let match;
-        while ((match = pattern.exec(jsonStr)) !== null) {
-            try {
-                const obj = JSON.parse(match[0]);
-                if (obj.label && obj.kind) {
-                    results.push(obj);
-                }
-            } catch {
-                // Skip
-            }
-        }
-
-        console.log(`[LlmEntityExtractor] Recovered ${results.length} entities from malformed JSON`);
-        return results;
     }
 }

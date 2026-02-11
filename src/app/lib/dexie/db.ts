@@ -528,6 +528,15 @@ export interface NetworkRelationship {
 }
 
 // =============================================================================
+// SETTINGS (replaces localStorage)
+// =============================================================================
+
+export interface Setting {
+    key: string;
+    value: any;
+}
+
+// =============================================================================
 // DEXIE DATABASE
 // =============================================================================
 
@@ -576,6 +585,9 @@ export class CrepeDatabase extends Dexie {
 
     // Unified Codex (v6)
     codexEntries!: Table<CodexEntry>;
+
+    // Settings (replaces localStorage)
+    settings!: Table<Setting>;
 
     constructor() {
         super('CrepeNotesDB');
@@ -844,6 +856,12 @@ export class CrepeDatabase extends Dexie {
                 await tx.table('customSliderDefs').put(slider);
             }
             console.log('[Dexie] Upgrade to v14: Seeded default custom sliders');
+        });
+
+        // Version 15: Settings table (replaces localStorage)
+        // Key-value store for all UI preferences and session state
+        this.version(15).stores({
+            settings: 'key'
         });
     }
 

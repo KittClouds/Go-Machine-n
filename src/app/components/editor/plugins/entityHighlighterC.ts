@@ -81,7 +81,9 @@ export const entityHighlighterC = $prose((ctx) => {
         if (anyAdded) {
             // Dispatch the transaction to add marks to document
             view.dispatch(tr);
-            console.log(`[HighlighterC] Applied ${spans.length} entity marks`);
+            console.log(`[HighlighterC] Applied ${spans.length} entity marks. Sample: ${spans[0]?.label} (${spans[0]?.from}-${spans[0]?.to})`);
+        } else {
+            console.log(`[HighlighterC] No new marks applied (all ${spans.length} already exist or invalid)`);
         }
     }
 
@@ -91,6 +93,7 @@ export const entityHighlighterC = $prose((ctx) => {
      */
     async function scanAndApplyMarks(view: EditorView): Promise<void> {
         // Use the async method that waits for scan to complete
+        console.log('[HighlighterC] scanAndApplyMarks: Requesting implicit scan...');
         const spans = await highlighterApi.scanForSpansAsync(view.state.doc);
 
         const entitySpans = spans.filter(s =>
@@ -98,6 +101,8 @@ export const entityHighlighterC = $prose((ctx) => {
             s.type === 'entity_implicit' ||
             s.type === 'entity_ref'
         );
+
+        console.log(`[HighlighterC] Received ${spans.length} spans. Filtered to ${entitySpans.length} entities.`);
 
         if (entitySpans.length > 0) {
             applyEntityMarksOnce(view, entitySpans);
@@ -126,6 +131,21 @@ export const entityHighlighterC = $prose((ctx) => {
                 scanAndApplyMarks(editorView);
             };
             window.addEventListener('gokitt-ready', handleGoKittReady);
+
+            // Listen for dictionary-rebuilt to rescan with updated entity list
+            const handleDictRebuilt = () => {
+                console.log('[HighlighterC] Dictionary rebuilt - stripping old marks and rescanning');
+                // Strip all existing entity marks so scanAndApplyMarks can reapply fresh
+                const entityMarkType = editorView.state.schema.marks['entity'];
+                if (entityMarkType) {
+                    const tr = editorView.state.tr.removeMark(0, editorView.state.doc.content.size, entityMarkType);
+                    editorView.dispatch(tr);
+                }
+                // Force the API to re-scan (clear cached context)
+                highlighterApi.forceRescan();
+                scanAndApplyMarks(editorView);
+            };
+            window.addEventListener('dictionary-rebuilt', handleDictRebuilt);
 
             // Subscribe to mode changes to update mark attributes
             const unsubscribe = highlighterApi.subscribe(() => {
@@ -205,6 +225,7 @@ export const entityHighlighterC = $prose((ctx) => {
                 destroy() {
                     unsubscribe();
                     window.removeEventListener('gokitt-ready', handleGoKittReady);
+                    window.removeEventListener('dictionary-rebuilt', handleDictRebuilt);
                     if (pendingScanTimer) clearTimeout(pendingScanTimer);
                 }
             };

@@ -46,7 +46,28 @@ type GoKittWorkerMessage =
     | { type: 'REMOVE_NOTE'; payload: { id: string }; id: number }
     | { type: 'SCAN_NOTE'; payload: { noteId: string; provenance?: ProvenanceContext }; id: number }
     | { type: 'VALIDATE_RELATIONS'; payload: { noteId: string; relationsJSON: string }; id: number }
-    | { type: 'DOC_COUNT'; id: number };
+    | { type: 'DOC_COUNT'; id: number }
+    // Phase 6: LLM Batch + Extraction + Agent
+    | { type: 'BATCH_INIT'; payload: { configJSON: string }; id: number }
+    | { type: 'EXTRACT_FROM_NOTE'; payload: { text: string; knownEntitiesJSON?: string }; id: number }
+    | { type: 'EXTRACT_ENTITIES'; payload: { text: string }; id: number }
+    | { type: 'EXTRACT_RELATIONS'; payload: { text: string; knownEntitiesJSON?: string }; id: number }
+    | { type: 'AGENT_CHAT_WITH_TOOLS'; payload: { messagesJSON: string; toolsJSON: string; systemPrompt?: string }; id: number }
+    // Phase 7: Observational Memory + Chat Service
+    | { type: 'CHAT_INIT'; payload: { configJSON: string }; id: number }
+    | { type: 'CHAT_CREATE_THREAD'; payload: { worldId: string; narrativeId: string }; id: number }
+    | { type: 'CHAT_GET_THREAD'; payload: { id: string }; id: number }
+    | { type: 'CHAT_LIST_THREADS'; payload: { worldId: string }; id: number }
+    | { type: 'CHAT_DELETE_THREAD'; payload: { id: string }; id: number }
+    | { type: 'CHAT_ADD_MESSAGE'; payload: { threadId: string; role: string; content: string; narrativeId: string }; id: number }
+    | { type: 'CHAT_GET_MESSAGES'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_UPDATE_MESSAGE'; payload: { messageId: string; content: string }; id: number }
+    | { type: 'CHAT_APPEND_MESSAGE'; payload: { messageId: string; chunk: string }; id: number }
+    | { type: 'CHAT_START_STREAMING'; payload: { threadId: string; narrativeId: string }; id: number }
+    | { type: 'CHAT_GET_MEMORIES'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_GET_CONTEXT'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_CLEAR_THREAD'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_EXPORT_THREAD'; payload: { threadId: string }; id: number };
 
 type GoKittWorkerResponse =
     | { type: 'INIT_COMPLETE' }
@@ -93,6 +114,27 @@ type GoKittWorkerResponse =
     | { type: 'SAB_INIT_RESULT'; id: number; payload: { success: boolean; initialized: boolean; bufferSize: number; error?: string } }
     | { type: 'SAB_SCAN_TO_BUFFER_RESULT'; id: number; payload: { success: boolean; spans: number; payloadSize: number; error?: string } }
     | { type: 'SAB_GET_STATUS_RESULT'; id: number; payload: { success: boolean; initialized: boolean; bufferSize: number; error?: string } }
+    // Phase 6: LLM responses
+    | { type: 'BATCH_INIT_RESULT'; id: number; payload: { success: boolean; provider?: string; model?: string; error?: string } }
+    | { type: 'EXTRACT_FROM_NOTE_RESULT'; id: number; payload: any }
+    | { type: 'EXTRACT_ENTITIES_RESULT'; id: number; payload: any }
+    | { type: 'EXTRACT_RELATIONS_RESULT'; id: number; payload: any }
+    | { type: 'AGENT_CHAT_WITH_TOOLS_RESULT'; id: number; payload: any }
+    // Phase 7: Chat Service responses
+    | { type: 'CHAT_INIT_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_CREATE_THREAD_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_THREAD_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_LIST_THREADS_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_DELETE_THREAD_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_ADD_MESSAGE_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_MESSAGES_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_UPDATE_MESSAGE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_APPEND_MESSAGE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_START_STREAMING_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_MEMORIES_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_CONTEXT_RESULT'; id: number; payload: string }
+    | { type: 'CHAT_CLEAR_THREAD_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_EXPORT_THREAD_RESULT'; id: number; payload: string }
     | { type: 'ERROR'; id?: number; payload: { message: string } };
 
 @Injectable({
@@ -224,6 +266,9 @@ export class GoKittService {
         this.wasmHydrated = true;
         console.log(`[GoKittService] ✅ Hydrated with ${entities.length} entities`);
 
+        // Force dictionary rebuild to ensure Aho-Corasick is ready
+        await this.refreshDictionary();
+
         // After hydration, init search index
         this.initSearchIndex().catch(err => console.error('[GoKittService] Search Init Error:', err));
 
@@ -291,12 +336,27 @@ export class GoKittService {
         }));
 
         const entitiesJSON = JSON.stringify(entities);
-        await this.sendAndWait<{ success: boolean }>({
-            type: 'HYDRATE',
-            payload: { entitiesJSON }
+        console.log(`[GoKittService] refreshDictionary: Rebuilding with ${entities.length} entities...`);
+
+        // DEBUG: Check for key entities
+        const checkEntities = ["Yellow Dragon", "Belys Vorona", "Kai"];
+        checkEntities.forEach(name => {
+            const found = entities.find(e => e.Label === name);
+            if (found) {
+                console.log(`[GoKittService] Dictionary Payload contains "${name}":`, found);
+            } else {
+                console.log(`[GoKittService] Dictionary Payload MISSING "${name}"`);
+            }
         });
 
-        console.log(`[GoKittService] Dictionary refreshed: ${entities.length} entities`);
+
+        const result = await this.sendRequest<{ success: boolean; error?: string }>('REBUILD_DICTIONARY', { entitiesJSON });
+
+        if (!result.success) {
+            console.error('[GoKittService] Dictionary rebuild failed:', result.error);
+        } else {
+            console.log(`[GoKittService] ✅ Dictionary rebuilt successfully`);
+        }
     }
 
     // ============ Public API ============
@@ -708,6 +768,19 @@ export class GoKittService {
 
         try {
             const entitiesJSON = JSON.stringify(entities);
+
+            // DEBUG: Check for key entities in rebuildDictionary (Public API)
+            console.log(`[GoKittService.rebuildDictionary] Checking payload for critical entities...`);
+            const checkEntities = ["Yellow Dragon", "Belys Vorona", "Kai"];
+            checkEntities.forEach(name => {
+                const found = entities.find(e => e.label === name);
+                if (found) {
+                    console.log(`[GoKittService.rebuildDictionary] Payload contains "${name}":`, JSON.stringify(found));
+                } else {
+                    console.log(`[GoKittService.rebuildDictionary] Payload MISSING "${name}"`);
+                }
+            });
+
             const result = await this.sendRequest<{ success: boolean; error?: string }>('REBUILD_DICTIONARY', { entitiesJSON });
             if (!result.success) {
                 console.error('[GoKittService.rebuildDictionary] Failed:', result.error);
@@ -788,6 +861,27 @@ export class GoKittService {
                         case 'SAB_INIT_RESULT':
                         case 'SAB_SCAN_TO_BUFFER_RESULT':
                         case 'SAB_GET_STATUS_RESULT':
+                        // Phase 6: LLM responses
+                        case 'BATCH_INIT_RESULT':
+                        case 'EXTRACT_FROM_NOTE_RESULT':
+                        case 'EXTRACT_ENTITIES_RESULT':
+                        case 'EXTRACT_RELATIONS_RESULT':
+                        case 'AGENT_CHAT_WITH_TOOLS_RESULT':
+                        // Phase 7: Chat Service responses
+                        case 'CHAT_INIT_RESULT':
+                        case 'CHAT_CREATE_THREAD_RESULT':
+                        case 'CHAT_GET_THREAD_RESULT':
+                        case 'CHAT_LIST_THREADS_RESULT':
+                        case 'CHAT_DELETE_THREAD_RESULT':
+                        case 'CHAT_ADD_MESSAGE_RESULT':
+                        case 'CHAT_GET_MESSAGES_RESULT':
+                        case 'CHAT_UPDATE_MESSAGE_RESULT':
+                        case 'CHAT_APPEND_MESSAGE_RESULT':
+                        case 'CHAT_START_STREAMING_RESULT':
+                        case 'CHAT_GET_MEMORIES_RESULT':
+                        case 'CHAT_GET_CONTEXT_RESULT':
+                        case 'CHAT_CLEAR_THREAD_RESULT':
+                        case 'CHAT_EXPORT_THREAD_RESULT':
                             pending.resolve(msg.payload);
                             break;
                         default:
@@ -904,5 +998,277 @@ export class GoKittService {
      */
     async getDocCount(): Promise<number> {
         return this.sendRequest<number>('DOC_COUNT', {});
+    }
+
+    // =========================================================================
+    // Phase 6: LLM Batch + Extraction + Agent API
+    // =========================================================================
+
+    /**
+     * Initialize the Go LLM batch service with provider config.
+     * Must be called before any extraction or agent calls.
+     * @param config LLM provider configuration
+     */
+    async batchInit(config: {
+        provider: 'google' | 'openrouter';
+        googleApiKey?: string;
+        googleModel?: string;
+        openRouterApiKey?: string;
+        openRouterModel?: string;
+    }): Promise<{ success: boolean; provider?: string; model?: string; error?: string }> {
+        if (!this.wasmLoaded) {
+            return { success: false, error: 'WASM not loaded' };
+        }
+        const configJSON = JSON.stringify(config);
+        return this.sendRequest('BATCH_INIT', { configJSON });
+    }
+
+    /**
+     * Unified entity + relation extraction via Go LLM service.
+     * @param text The note text to extract from
+     * @param knownEntities Optional list of known entity labels for context
+     * @returns Extraction result with entities and relations arrays
+     */
+    async extractFromNote(
+        text: string,
+        knownEntities?: string[]
+    ): Promise<{ entities: any[]; relations: any[] }> {
+        if (!this.wasmLoaded) {
+            throw new Error('WASM not loaded');
+        }
+        const knownEntitiesJSON = knownEntities ? JSON.stringify(knownEntities) : undefined;
+        return this.sendLLMRequest('EXTRACT_FROM_NOTE', { text, knownEntitiesJSON });
+    }
+
+    /**
+     * Extract entities only from text via Go LLM service.
+     */
+    async extractEntities(text: string): Promise<any[]> {
+        if (!this.wasmLoaded) {
+            throw new Error('WASM not loaded');
+        }
+        return this.sendLLMRequest('EXTRACT_ENTITIES', { text });
+    }
+
+    /**
+     * Extract relations only from text via Go LLM service.
+     */
+    async extractRelations(text: string, knownEntities?: string[]): Promise<any[]> {
+        if (!this.wasmLoaded) {
+            throw new Error('WASM not loaded');
+        }
+        const knownEntitiesJSON = knownEntities ? JSON.stringify(knownEntities) : undefined;
+        return this.sendLLMRequest('EXTRACT_RELATIONS', { text, knownEntitiesJSON });
+    }
+
+    /**
+     * Non-streaming LLM call with tool schemas via Go.
+     * Used by the agentic chat loop for function calling.
+     * @param messages Chat messages array
+     * @param tools Tool definitions array
+     * @param systemPrompt Optional system prompt
+     * @returns Content and/or tool_calls from the LLM
+     */
+    async agentChatWithTools(
+        messages: any[],
+        tools: any[],
+        systemPrompt?: string
+    ): Promise<{ content: string | null; tool_calls: any[] | null }> {
+        if (!this.wasmLoaded) {
+            throw new Error('WASM not loaded');
+        }
+        const messagesJSON = JSON.stringify(messages);
+        const toolsJSON = JSON.stringify(tools);
+        return this.sendLLMRequest('AGENT_CHAT_WITH_TOOLS', {
+            messagesJSON,
+            toolsJSON,
+            systemPrompt
+        });
+    }
+
+    /**
+     * Send a request with a longer timeout for LLM calls (120s vs 30s for local ops).
+     */
+    private sendLLMRequest<T>(type: string, payload: any): Promise<T> {
+        return new Promise((resolve, reject) => {
+            const id = this.nextRequestId++;
+            this.pendingRequests.set(id, { resolve, reject });
+
+            this._worker?.postMessage({ type, payload, id } as GoKittWorkerMessage);
+
+            // LLM calls need longer timeout (120s) since they make external API requests
+            setTimeout(() => {
+                if (this.pendingRequests.has(id)) {
+                    this.pendingRequests.delete(id);
+                    reject(new Error(`LLM request ${type} timed out after 120s`));
+                }
+            }, 120000);
+        });
+    }
+
+    // =========================================================================
+    // Phase 7: Observational Memory + Chat Service API
+    // =========================================================================
+
+    /**
+     * Initialize the Go chat service with OpenRouter config.
+     * Must be called before any chat operations.
+     * @param configJSON JSON string with apiKey and model
+     */
+    async chatInit(configJSON: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.wasmLoaded) {
+            return { success: false, error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_INIT', { configJSON });
+    }
+
+    /**
+     * Create a new chat thread.
+     * @param worldId World scope for the thread
+     * @param narrativeId Narrative scope for the thread
+     */
+    async chatCreateThread(worldId: string, narrativeId: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_CREATE_THREAD', { worldId, narrativeId });
+    }
+
+    /**
+     * Get a thread by ID.
+     * @param id Thread ID
+     */
+    async chatGetThread(id: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_GET_THREAD', { id });
+    }
+
+    /**
+     * List threads, optionally filtered by worldId.
+     * @param worldId Optional world scope
+     */
+    async chatListThreads(worldId?: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_LIST_THREADS', { worldId: worldId || '' });
+    }
+
+    /**
+     * Delete a thread and all its messages.
+     * @param id Thread ID
+     */
+    async chatDeleteThread(id: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.wasmLoaded) {
+            return { success: false, error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_DELETE_THREAD', { id });
+    }
+
+    /**
+     * Add a message to a thread.
+     * @param threadId Thread ID
+     * @param role Message role (user/assistant/system)
+     * @param content Message content
+     * @param narrativeId Narrative scope
+     */
+    async chatAddMessage(threadId: string, role: string, content: string, narrativeId: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_ADD_MESSAGE', { threadId, role, content, narrativeId });
+    }
+
+    /**
+     * Get messages for a thread.
+     * @param threadId Thread ID
+     */
+    async chatGetMessages(threadId: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_GET_MESSAGES', { threadId });
+    }
+
+    /**
+     * Update message content.
+     * @param messageId Message ID
+     * @param content New content
+     */
+    async chatUpdateMessage(messageId: string, content: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.wasmLoaded) {
+            return { success: false, error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_UPDATE_MESSAGE', { messageId, content });
+    }
+
+    /**
+     * Append content to a message (for streaming).
+     * @param messageId Message ID
+     * @param chunk Content chunk to append
+     */
+    async chatAppendMessage(messageId: string, chunk: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.wasmLoaded) {
+            return { success: false, error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_APPEND_MESSAGE', { messageId, chunk });
+    }
+
+    /**
+     * Start a streaming message (creates placeholder).
+     * @param threadId Thread ID
+     * @param narrativeId Narrative scope
+     */
+    async chatStartStreaming(threadId: string, narrativeId: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_START_STREAMING', { threadId, narrativeId });
+    }
+
+    /**
+     * Get memories for a thread.
+     * @param threadId Thread ID
+     */
+    async chatGetMemories(threadId: string): Promise<any> {
+        if (!this.wasmLoaded) {
+            return { error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_GET_MEMORIES', { threadId });
+    }
+
+    /**
+     * Get formatted context string for LLM prompts (with memories).
+     * @param threadId Thread ID
+     */
+    async chatGetContext(threadId: string): Promise<string> {
+        if (!this.wasmLoaded) {
+            return '';
+        }
+        return this.sendRequest('CHAT_GET_CONTEXT', { threadId });
+    }
+
+    /**
+     * Clear all messages in a thread.
+     * @param threadId Thread ID
+     */
+    async chatClearThread(threadId: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.wasmLoaded) {
+            return { success: false, error: 'WASM not loaded' };
+        }
+        return this.sendRequest('CHAT_CLEAR_THREAD', { threadId });
+    }
+
+    /**
+     * Export thread as JSON.
+     * @param threadId Thread ID
+     */
+    async chatExportThread(threadId: string): Promise<string> {
+        if (!this.wasmLoaded) {
+            return '{}';
+        }
+        return this.sendRequest('CHAT_EXPORT_THREAD', { threadId });
     }
 }

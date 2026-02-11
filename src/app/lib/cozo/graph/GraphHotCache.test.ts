@@ -2,16 +2,20 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { GraphHotCache } from './GraphHotCache';
 import type { CozoEntity } from './GraphRegistry';
 
-// Mock localStorage
-const mockStore: Record<string, string> = {};
-const localStorageMock = {
-    getItem: vi.fn((key: string) => mockStore[key] || null),
-    setItem: vi.fn((key: string, value: string) => { mockStore[key] = value; }),
-    removeItem: vi.fn((key: string) => { delete mockStore[key]; }),
-    clear: vi.fn(() => { for (const key in mockStore) delete mockStore[key]; }),
-    length: 0,
-    key: vi.fn(),
-};
+// Mock settings service — cozoBootCache now reads from Dexie settings, not localStorage
+const settingsCache = new Map<string, any>();
+
+vi.mock('../../dexie/settings.service', () => ({
+    getSetting: vi.fn(<T>(key: string, defaultValue: T): T => {
+        return settingsCache.has(key) ? settingsCache.get(key) as T : defaultValue;
+    }),
+    setSetting: vi.fn((key: string, value: any) => {
+        settingsCache.set(key, value);
+    }),
+    removeSetting: vi.fn((key: string) => {
+        settingsCache.delete(key);
+    }),
+}));
 
 function createMockEntity(id: string, label: string, kind: string = 'CHARACTER', aliases: string[] = []): CozoEntity {
     return {
@@ -30,13 +34,12 @@ describe('GraphHotCache', () => {
     let cache: GraphHotCache;
 
     beforeEach(() => {
-        for (const key in mockStore) delete mockStore[key];
-        vi.stubGlobal('localStorage', localStorageMock);
+        settingsCache.clear();
         cache = new GraphHotCache({ bootCacheEnabled: false }); // Disable for unit tests
     });
 
     afterEach(() => {
-        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
     });
 
     describe('Entity Operations', () => {
@@ -164,9 +167,9 @@ describe('GraphHotCache', () => {
         it('should warm from boot cache when enabled', () => {
             const bootCache = new GraphHotCache({ bootCacheEnabled: true });
 
-            // Seed boot cache
-            mockStore['cozo-boot-cache'] = JSON.stringify({
-                version: 1,
+            // Seed the Dexie settings cache (cozoBootCache reads via getSetting)
+            settingsCache.set('cozo-boot-cache', {
+                version: 2,
                 entities: [
                     { id: 'ent-1', label: 'Alice', kind: 'CHARACTER' },
                     { id: 'ent-2', label: 'Bob', kind: 'CHARACTER' },
@@ -187,8 +190,8 @@ describe('GraphHotCache', () => {
 
             bootCache.syncToBootCache();
 
-            expect(mockStore['cozo-boot-cache']).toBeDefined();
-            const saved = JSON.parse(mockStore['cozo-boot-cache']);
+            const saved = settingsCache.get('cozo-boot-cache');
+            expect(saved).toBeDefined();
             expect(saved.entities).toHaveLength(1);
             expect(saved.entities[0].label).toBe('Alice');
         });

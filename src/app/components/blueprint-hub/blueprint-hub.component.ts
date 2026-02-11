@@ -1,4 +1,4 @@
-import { Component, HostListener } from '@angular/core';
+import { Component, HostListener, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BlueprintHubService } from './blueprint-hub.service';
 import { ButtonModule } from 'primeng/button';
@@ -7,6 +7,10 @@ import { ThemeTabComponent } from './tabs/theme-tab/theme-tab.component';
 import { PatternsTabComponent } from './tabs/patterns-tab/patterns-tab.component';
 import { StoryBeatsTabComponent } from './tabs/story-beats-tab/story-beats-tab.component';
 import { WorldbuildingTabComponent } from './tabs/worldbuilding-tab/worldbuilding-tab.component';
+import { getSetting, setSetting } from '../../lib/dexie/settings.service';
+
+const STORAGE_KEY = 'kittclouds-hub-tab';
+const VALID_TAB_IDS = ['graph', 'theme', 'patterns', 'story-beats', 'worldbuilding', 'attributes'];
 
 @Component({
     selector: 'app-blueprint-hub',
@@ -24,7 +28,11 @@ import { WorldbuildingTabComponent } from './tabs/worldbuilding-tab/worldbuildin
     styleUrl: './blueprint-hub.component.css'
 })
 export class BlueprintHubComponent {
-    activeTab = 'graph';
+    // Local state with Dexie settings persistence
+    private _activeTab = signal(this.loadFromStorage());
+
+    // Active tab (signal)
+    activeTab = computed(() => this._activeTab());
 
     // Resize state
     hubHeight = 600; // Default height in pixels
@@ -43,17 +51,24 @@ export class BlueprintHubComponent {
 
     constructor(public hubService: BlueprintHubService) { }
 
+    private loadFromStorage(): string {
+        const stored = getSetting<string | null>(STORAGE_KEY, null);
+        if (stored && VALID_TAB_IDS.includes(stored)) return stored;
+        return 'graph';
+    }
+
     setActiveTab(tabId: string) {
-        this.activeTab = tabId;
+        this._activeTab.set(tabId);
+        setSetting(STORAGE_KEY, tabId);
     }
 
     get activeTabIcon(): string {
-        const t = this.tabs.find(x => x.id === this.activeTab);
+        const t = this.tabs.find(x => x.id === this.activeTab());
         return t ? t.icon : 'pi pi-info-circle';
     }
 
     get activeTabLabel(): string {
-        const t = this.tabs.find(x => x.id === this.activeTab);
+        const t = this.tabs.find(x => x.id === this.activeTab());
         return t ? t.label : '';
     }
 

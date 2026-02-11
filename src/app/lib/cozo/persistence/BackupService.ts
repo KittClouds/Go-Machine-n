@@ -6,6 +6,7 @@
  */
 
 import { cozoDb, PERSISTED_RELATIONS } from '../db';
+import { getSetting, setSetting } from '../../dexie/settings.service';
 
 const LAST_BACKUP_KEY = 'cozo_last_backup_date';
 
@@ -69,7 +70,7 @@ export class BackupService {
         URL.revokeObjectURL(url);
 
         // Record last backup date
-        localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString());
+        setSetting(LAST_BACKUP_KEY, new Date().toISOString());
         console.log('[BackupService] Export complete');
     }
 
@@ -110,7 +111,7 @@ export class BackupService {
      * Get the date of the last manual backup
      */
     getLastBackupDate(): Date | null {
-        const stored = localStorage.getItem(LAST_BACKUP_KEY);
+        const stored = getSetting<string | null>(LAST_BACKUP_KEY, null);
         if (!stored) return null;
         try {
             return new Date(stored);

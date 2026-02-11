@@ -1,9 +1,11 @@
 /**
  * Cozo Boot Cache
  * 
- * Stores lightweight entity metadata in localStorage for instant UI rendering.
- * Boot cache pattern for fast UI hydration from localStorage.
+ * Stores lightweight entity metadata in Dexie settings for instant UI rendering.
+ * Boot cache pattern for fast UI hydration from Dexie.
  */
+
+import { getSetting, setSetting, removeSetting } from '../dexie/settings.service';
 
 const CACHE_KEY = 'cozo-boot-cache';
 const CACHE_VERSION = 2; // Bumped for narrativeId
@@ -25,17 +27,16 @@ export interface CozoBootCache {
 }
 
 /**
- * Load the Cozo boot cache from localStorage
+ * Load the Cozo boot cache from Dexie settings
  */
 export function loadCozoBootCache(): CozoBootCache | null {
     try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return null;
+        const parsed = getSetting<CozoBootCache | null>(CACHE_KEY, null);
+        if (!parsed) return null;
 
-        const parsed = JSON.parse(raw) as CozoBootCache;
         if (parsed.version !== CACHE_VERSION) {
             console.warn('[CozoBootCache] Version mismatch, clearing cache');
-            localStorage.removeItem(CACHE_KEY);
+            removeSetting(CACHE_KEY);
             return null;
         }
 
@@ -48,13 +49,13 @@ export function loadCozoBootCache(): CozoBootCache | null {
 }
 
 /**
- * Save the Cozo boot cache to localStorage
+ * Save the Cozo boot cache to Dexie settings
  */
 export function saveCozoBootCache(cache: CozoBootCache): void {
     try {
         cache.version = CACHE_VERSION;
         cache.lastUpdatedAt = Date.now();
-        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+        setSetting(CACHE_KEY, cache);
     } catch (e) {
         console.warn('[CozoBootCache] Failed to save:', e);
     }
@@ -86,5 +87,5 @@ export function buildCozoBootCache(
  * Clear the boot cache
  */
 export function clearCozoBootCache(): void {
-    localStorage.removeItem(CACHE_KEY);
+    removeSetting(CACHE_KEY);
 }

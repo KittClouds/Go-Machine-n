@@ -535,9 +535,11 @@ export class CentralRegistry {
             await goKittService.rebuildDictionary(entities);
             console.log(`[CentralRegistry] ✅ Dictionary rebuild complete`);
 
-            // NOTE: We do NOT dispatch 'dictionary-rebuilt' event here!
-            // That event triggers a rescan which finds entities → registerEntity → notify → rebuild → LOOP
-            // The implicit scanner will pick up new entities on the next natural scan (keystroke, note open, etc.)
+            // Dispatch event to trigger immediate rescan with updated dictionary
+            // SAFE: ScanCoordinator has guard to skip already-registered entities (line 98-100)
+            // preventing: dictionary-rebuilt → rescan → onEntityDecoration → registerEntity → notify → LOOP
+            window.dispatchEvent(new CustomEvent('dictionary-rebuilt'));
+            console.log(`[CentralRegistry] 📢 Dispatched dictionary-rebuilt event`);
         } catch (err) {
             console.error('[CentralRegistry] Dictionary rebuild failed:', err);
         } finally {

@@ -1,59 +1,46 @@
-import { Injectable, signal, effect, Inject, PLATFORM_ID } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Injectable, signal } from '@angular/core';
+import { getSetting, setSetting } from '../../lib/dexie/settings.service';
 
-const HUB_STORAGE_KEY = 'kittclouds-hub-open';
+const STORAGE_KEY = 'kittclouds-blueprint-hub';
 
+/**
+ * Service for Blueprint Hub state.
+ * Uses local signal state with Dexie settings persistence.
+ */
 @Injectable({
     providedIn: 'root'
 })
 export class BlueprintHubService {
-    private isBrowser: boolean;
+    private _isOpen = signal(this.loadFromStorage());
 
-    // Initialize from localStorage synchronously to prevent flash
-    isHubOpen = signal(this.getInitialState());
-
-    constructor(@Inject(PLATFORM_ID) platformId: Object) {
-        this.isBrowser = isPlatformBrowser(platformId);
-
-        // Persist state changes
-        effect(() => {
-            const isOpen = this.isHubOpen();
-            this.persistState(isOpen);
-        });
+    /** Whether the hub is currently open (signal) */
+    get isHubOpen() {
+        return this._isOpen;
     }
 
-    private getInitialState(): boolean {
-        // SSR safety: default to closed
-        if (typeof localStorage === 'undefined') return false;
-
-        try {
-            const stored = localStorage.getItem(HUB_STORAGE_KEY);
-            // Default to CLOSED if no stored value
-            return stored === 'true';
-        } catch {
-            return false;
-        }
+    private loadFromStorage(): boolean {
+        return getSetting<boolean>(STORAGE_KEY, false);
     }
 
-    private persistState(isOpen: boolean): void {
-        if (!this.isBrowser) return;
-
-        try {
-            localStorage.setItem(HUB_STORAGE_KEY, String(isOpen));
-        } catch {
-            // Silently fail
-        }
+    private persist(): void {
+        setSetting(STORAGE_KEY, this._isOpen());
     }
 
-    toggle() {
-        this.isHubOpen.update(v => !v);
+    /** Toggle hub open/closed */
+    toggle(): void {
+        this._isOpen.update(v => !v);
+        this.persist();
     }
 
-    close() {
-        this.isHubOpen.set(false);
+    /** Close the hub */
+    close(): void {
+        this._isOpen.set(false);
+        this.persist();
     }
 
-    open() {
-        this.isHubOpen.set(true);
+    /** Open the hub */
+    open(): void {
+        this._isOpen.set(true);
+        this.persist();
     }
 }

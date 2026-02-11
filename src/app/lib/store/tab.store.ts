@@ -4,8 +4,8 @@
 import { Injectable, signal, computed, effect, Inject, PLATFORM_ID, inject, untracked } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { NoteEditorStore } from './note-editor.store';
+import { getSetting, setSetting } from '../dexie/settings.service';
 import * as ops from '../operations';
-import { AppStore } from '../ngrx';
 
 export interface EditorTab {
     id: string;      // Usually same as noteId
@@ -22,7 +22,6 @@ const TABS_STORAGE_KEY = 'kittclouds-open-tabs';
 export class TabStore {
     private isBrowser: boolean;
     private noteEditorStore = inject(NoteEditorStore);
-    private appStore = inject(AppStore);
 
     // ─────────────────────────────────────────────────────────────
     // State
@@ -153,7 +152,6 @@ export class TabStore {
      */
     activateTab(noteId: string) {
         this.noteEditorStore.openNote(noteId);
-        this.appStore.openNote(noteId);
     }
 
     /**
@@ -181,9 +179,8 @@ export class TabStore {
     private restoreTabs() {
         if (!this.isBrowser) return;
         try {
-            const stored = localStorage.getItem(TABS_STORAGE_KEY);
-            if (stored) {
-                const tabs = JSON.parse(stored);
+            const tabs = getSetting<EditorTab[] | null>(TABS_STORAGE_KEY, null);
+            if (tabs) {
                 this.tabs.set(tabs);
             }
         } catch (e) {
@@ -193,6 +190,6 @@ export class TabStore {
 
     private persistTabs(tabs: EditorTab[]) {
         if (!this.isBrowser) return;
-        localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(tabs));
+        setSetting(TABS_STORAGE_KEY, tabs);
     }
 }

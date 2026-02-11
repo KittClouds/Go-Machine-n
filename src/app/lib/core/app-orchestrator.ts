@@ -10,11 +10,11 @@ import { Subject, firstValueFrom, filter, timeout, race, timer } from 'rxjs';
  */
 export type BootPhase =
     | 'shell'         // Phase 0: UI shell visible, spinner shown
-    | 'data_layer'    // Phase 1: Dexie ready, seed complete
-    | 'registry'      // Phase 2: SmartGraphRegistry hydrated from Dexie
-    | 'wasm_load'     // Phase 3: GoKitt WASM module loaded (not yet hydrated)
-    | 'wasm_hydrate'  // Phase 4: GoKitt initialized with entities from registry
-    | 'ready';        // Phase 5: App fully ready, editor can load notes
+    | 'registry'      // Phase 1: SmartGraphRegistry hydrated from Dexie cache
+    | 'wasm_load'     // Phase 2: GoKitt WASM module loaded (not yet hydrated)
+    | 'wasm_hydrate'  // Phase 3: GoKitt initialized with entities from registry
+    | 'ready'         // Phase 4: App interactive — note can open, editor usable
+    | 'background';   // Phase 5: CozoDB + DocStore finished (non-blocking)
 
 interface PhaseInfo {
     name: BootPhase;
@@ -28,7 +28,7 @@ interface PhaseInfo {
  * 
  * Usage:
  *   await orchestrator.waitFor('registry');  // Block until phase complete
- *   orchestrator.completePhase('data_layer'); // Signal phase done
+ *   orchestrator.completePhase('registry'); // Signal phase done
  */
 @Injectable({
     providedIn: 'root'
@@ -60,7 +60,7 @@ export class AppOrchestrator {
 
     // Phase order for validation
     private readonly phaseOrder: BootPhase[] = [
-        'shell', 'data_layer', 'registry', 'wasm_load', 'wasm_hydrate', 'ready'
+        'shell', 'registry', 'wasm_load', 'wasm_hydrate', 'ready', 'background'
     ];
 
     constructor() {
@@ -110,8 +110,12 @@ export class AppOrchestrator {
         if (phase === 'ready' && !this.readyLogged) {
             this.readyLogged = true;
             const totalTime = Date.now() - this.bootStart;
-            console.log(`[Orchestrator] 🚀 App ready in ${totalTime}ms`);
+            console.log(`[Orchestrator] 🚀 App interactive in ${totalTime}ms`);
             this.logTimings();
+        }
+        if (phase === 'background') {
+            const totalTime = Date.now() - this.bootStart;
+            console.log(`[Orchestrator] ✅ All background tasks done in ${totalTime}ms`);
         }
     }
 

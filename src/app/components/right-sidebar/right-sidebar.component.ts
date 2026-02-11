@@ -12,6 +12,7 @@ import { TimelineViewComponent } from './timeline-view/timeline-view.component';
 import { AiChatPanelComponent } from './ai-chat-panel/ai-chat-panel.component';
 import { smartGraphRegistry } from '../../lib/registry';
 import { db, Entity } from '../../lib/dexie';
+import { getSetting, setSetting } from '../../lib/dexie/settings.service';
 
 type SidebarView = 'entities' | 'analytics' | 'timeline' | 'ai';
 
@@ -284,7 +285,7 @@ export class RightSidebarComponent implements OnInit, OnDestroy {
     });
 
     private loadSavedView(): SidebarView {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = getSetting<string | null>(STORAGE_KEY, null);
         if (saved === 'entities' || saved === 'analytics' || saved === 'timeline' || saved === 'ai') {
             return saved as SidebarView;
         }
@@ -360,7 +361,7 @@ export class RightSidebarComponent implements OnInit, OnDestroy {
 
     onViewChange(view: SidebarView) {
         this.activeView.set(view);
-        localStorage.setItem(STORAGE_KEY, view);
+        setSetting(STORAGE_KEY, view);
         this.closeDropdown();
     }
 

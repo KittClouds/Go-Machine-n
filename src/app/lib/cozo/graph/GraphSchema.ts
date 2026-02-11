@@ -25,7 +25,6 @@ import {
     EPISODE_LOG_SCHEMA,
     BLOCKS_SCHEMA,
     BLOCKS_HNSW_384,
-    CHAT_MESSAGES_SCHEMA,
 } from '../schema/layer4-memory';
 
 let graphSchemasCreated = false;
@@ -79,7 +78,7 @@ export function createGraphSchemas(): string[] {
         // Layer 4: LLM Memory
         { name: 'episode_log', script: EPISODE_LOG_SCHEMA.trim() },
         { name: 'blocks', script: BLOCKS_SCHEMA.trim() },
-        { name: 'chat_messages', script: CHAT_MESSAGES_SCHEMA.trim() },
+        // NOTE: chat_messages removed - now using Go/SQLite via GoChatService
     ];
 
     const created: string[] = [];

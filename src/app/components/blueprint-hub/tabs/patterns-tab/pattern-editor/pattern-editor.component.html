@@ -155,34 +155,34 @@
                                     <p class="text-xs text-muted-foreground">Render as widget block instead of inline
                                         text</p>
                                 </div>
-                                <p-toggleswitch [ngModel]="_draft.rendering?.widgetMode"
+                                <p-toggleswitch [ngModel]="_draft.rendering.widgetMode"
                                     (ngModelChange)="updateWidgetMode($event)"></p-toggleswitch>
                             </div>
 
                             <div class="grid grid-cols-2 gap-4">
                                 <div class="flex flex-col gap-2">
                                     <label class="font-medium text-sm">Text Color</label>
-                                    <input pInputText [ngModel]="_draft.rendering?.color"
+                                    <input pInputText [ngModel]="_draft.rendering.color"
                                         (ngModelChange)="updateColor($event)" placeholder="#3b82f6">
                                 </div>
                                 <div class="flex flex-col gap-2">
                                     <label class="font-medium text-sm">Bg Color</label>
-                                    <input pInputText [ngModel]="_draft.rendering?.backgroundColor"
+                                    <input pInputText [ngModel]="_draft.rendering.backgroundColor"
                                         (ngModelChange)="updateBgColor($event)" placeholder="#3b82f620">
                                 </div>
                             </div>
 
                             <div class="flex flex-col gap-2">
                                 <label class="font-medium text-sm">Template</label>
-                                <input pInputText [ngModel]="_draft.rendering?.template"
+                                <input pInputText [ngModel]="_draft.rendering.template"
                                     (ngModelChange)="updateTemplate($event)" placeholder="{{'{{label}}'}}">
                                 <p class="text-xs text-muted-foreground">Use {{'{{captureName}}'}} to insert values</p>
                             </div>
 
                             <div class="p-4 border rounded-lg bg-muted/30 mt-4">
                                 <label class="font-medium text-sm block mb-2">Preview</label>
-                                <span [style.color]="_draft.rendering?.color || '#3b82f6'"
-                                    [style.backgroundColor]="_draft.rendering?.backgroundColor || '#3b82f620'"
+                                <span [style.color]="_draft.rendering.color || '#3b82f6'"
+                                    [style.backgroundColor]="_draft.rendering.backgroundColor || '#3b82f620'"
                                     class="px-1.5 py-0.5 rounded font-medium text-sm">
                                     Example Match
                                 </span>

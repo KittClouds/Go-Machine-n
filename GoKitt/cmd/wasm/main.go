@@ -9,13 +9,19 @@ import (
 	"strings"
 	"syscall/js"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
-	"github.com/hack-pad/hackpadfs/indexeddb"
 	"github.com/kittclouds/gokitt/internal/store"
+	"github.com/kittclouds/gokitt/pkg/agent"
+	"github.com/kittclouds/gokitt/pkg/batch"
+	"github.com/kittclouds/gokitt/pkg/chat"
 	"github.com/kittclouds/gokitt/pkg/docstore"
+	"github.com/kittclouds/gokitt/pkg/extraction"
 	"github.com/kittclouds/gokitt/pkg/graph"
 	"github.com/kittclouds/gokitt/pkg/hierarchy"
 	implicitmatcher "github.com/kittclouds/gokitt/pkg/implicit-matcher"
+	"github.com/kittclouds/gokitt/pkg/memory"
 	"github.com/kittclouds/gokitt/pkg/reality/builder"
 	"github.com/kittclouds/gokitt/pkg/reality/merger"
 	"github.com/kittclouds/gokitt/pkg/reality/pcst"
@@ -24,28 +30,23 @@ import (
 	"github.com/kittclouds/gokitt/pkg/resorank"
 	"github.com/kittclouds/gokitt/pkg/sab"
 	"github.com/kittclouds/gokitt/pkg/scanner/conductor"
-	"github.com/kittclouds/gokitt/pkg/vector"
 )
 
 // Version info
-const Version = "0.4.0" // SQLite Store
+const Version = "0.6.0" // Observational Memory + Chat Service
 
 // Global state
 var pipeline *conductor.Conductor
 var searcher *resorank.Scorer
-var vectorStore *vector.Store
-var docs *docstore.Store           // In-memory document store
-var sqlStore *store.SQLiteStore    // SQLite persistent store
-var graphMerger *merger.Merger     // Phase 3: Graph merger instance
-var sharedBuffer *sab.SharedBuffer // Phase 5: SharedArrayBuffer for zero-copy
-
-// ID Mapping for Vector Store (String -> Uint32)
-// Since HNSW only supports uint32, we map our string IDs.
-// This mapping is transient (rebuilt on indexing) assuming the client re-indexes on load.
-// If persistence is needed, we'd need to store this map.
-var idMap = make(map[string]uint32)
-var revIdMap = make(map[uint32]string)
-var nextID uint32 = 1
+var docs *docstore.Store              // In-memory document store
+var sqlStore *store.SQLiteStore       // SQLite persistent store
+var graphMerger *merger.Merger        // Phase 3: Graph merger instance
+var sharedBuffer *sab.SharedBuffer    // Phase 5: SharedArrayBuffer for zero-copy
+var batchSvc *batch.Service           // Phase 6: LLM Batch Service
+var extractionSvc *extraction.Service // Phase 6: Unified Extraction
+var agentSvc *agent.Service           // Phase 6: Agent (tool-calling)
+var chatSvc *chat.ChatService         // Phase 7: Chat + Observational Memory
+var memorySvc *memory.Extractor       // Phase 7: Memory extraction
 
 func main() {
 	var err error
@@ -73,11 +74,6 @@ func main() {
 		"indexDocument":     js.FuncOf(indexDocument),
 		"indexNote":         js.FuncOf(indexNote),
 		"search":            js.FuncOf(search),
-		// Vector Store API
-		"initVectors":   js.FuncOf(initVectors),
-		"addVector":     js.FuncOf(addVector),
-		"searchVectors": js.FuncOf(searchVectors),
-		"saveVectors":   js.FuncOf(saveVectors),
 		// DocStore API
 		"hydrateNotes":      js.FuncOf(hydrateNotes),      // Bulk load notes on startup
 		"upsertNote":        js.FuncOf(upsertNote),        // Update single note
@@ -100,6 +96,14 @@ func main() {
 		"storeGetEdge":          js.FuncOf(storeGetEdge),
 		"storeDeleteEdge":       js.FuncOf(storeDeleteEdge),
 		"storeListEdges":        js.FuncOf(storeListEdges),
+		// Store Export/Import (OPFS sync)
+		"storeExport": js.FuncOf(storeExport),
+		"storeImport": js.FuncOf(storeImport),
+		// Store Folder CRUD
+		"storeUpsertFolder": js.FuncOf(storeUpsertFolder),
+		"storeGetFolder":    js.FuncOf(storeGetFolder),
+		"storeDeleteFolder": js.FuncOf(storeDeleteFolder),
+		"storeListFolders":  js.FuncOf(storeListFolders),
 		// Phase 3: Graph Merger API
 		"mergerInit":       js.FuncOf(mergerInit),
 		"mergerAddScanner": js.FuncOf(mergerAddScanner),
@@ -113,6 +117,27 @@ func main() {
 		"sabInit":            js.FuncOf(sabInit),
 		"sabScanToBuffer":    js.FuncOf(sabScanToBuffer),
 		"sabGetBufferStatus": js.FuncOf(sabGetBufferStatus),
+		// Phase 6: LLM Batch + Extraction + Agent
+		"batchInit":          js.FuncOf(jsBatchInit),
+		"extractFromNote":    js.FuncOf(jsExtractFromNote),
+		"extractEntities":    js.FuncOf(jsExtractEntities),
+		"extractRelations":   js.FuncOf(jsExtractRelations),
+		"agentChatWithTools": js.FuncOf(jsAgentChatWithTools),
+		// Phase 7: Observational Memory + Chat Service
+		"chatInit":           js.FuncOf(jsChatInit),
+		"chatCreateThread":   js.FuncOf(jsChatCreateThread),
+		"chatGetThread":      js.FuncOf(jsChatGetThread),
+		"chatListThreads":    js.FuncOf(jsChatListThreads),
+		"chatDeleteThread":   js.FuncOf(jsChatDeleteThread),
+		"chatAddMessage":     js.FuncOf(jsChatAddMessage),
+		"chatGetMessages":    js.FuncOf(jsChatGetMessages),
+		"chatUpdateMessage":  js.FuncOf(jsChatUpdateMessage),
+		"chatAppendMessage":  js.FuncOf(jsChatAppendMessage),
+		"chatStartStreaming": js.FuncOf(jsChatStartStreaming),
+		"chatGetMemories":    js.FuncOf(jsChatGetMemories),
+		"chatGetContext":     js.FuncOf(jsChatGetContext),
+		"chatClearThread":    js.FuncOf(jsChatClearThread),
+		"chatExportThread":   js.FuncOf(jsChatExportThread),
 	}))
 
 	select {}
@@ -120,113 +145,7 @@ func main() {
 
 // ... existing helpers ...
 
-// initVectors initialized the IndexedDB-backed HNSW store
-// Args: [] (uses default "gokitt" DB and "hnsw.bin" path)
-func initVectors(this js.Value, args []js.Value) interface{} {
-	fs, err := indexeddb.NewFS(context.Background(), "gokitt", indexeddb.Options{})
-	if err != nil {
-		return errorResult("failed to create idb fs: " + err.Error())
-	}
-
-	vectorStore, err = vector.NewStore(fs, "hnsw.bin")
-	if err != nil {
-		return errorResult("failed to load vector store: " + err.Error())
-	}
-
-	// Reset maps on init
-	idMap = make(map[string]uint32)
-	revIdMap = make(map[uint32]string)
-	nextID = 1
-
-	return successResult("vector store initialized")
-}
-
-// getVectorID gets or creates a uint32 ID for a string ID
-func getVectorID(id string) uint32 {
-	if uid, ok := idMap[id]; ok {
-		return uid
-	}
-	uid := nextID
-	nextID++
-	idMap[id] = uid
-	revIdMap[uid] = id
-	return uid
-}
-
-// addVector: [id string, vectorJSON string]
-func addVector(this js.Value, args []js.Value) interface{} {
-	if len(args) < 2 {
-		return errorResult("requires 2 args: id (string), vectorJSON (string)")
-	}
-	if vectorStore == nil {
-		return errorResult("vector store not initialized")
-	}
-
-	idStr := args[0].String()
-	uid := getVectorID(idStr)
-
-	var vec []float32
-	if err := json.Unmarshal([]byte(args[1].String()), &vec); err != nil {
-		return errorResult("invalid vector json: " + err.Error())
-	}
-
-	if err := vectorStore.Add(uid, vec); err != nil {
-		return errorResult("add failed: " + err.Error())
-	}
-
-	return successResult("added")
-}
-
-// searchVectors: [vectorJSON string, k int]
-// Returns: JSON array of string IDs
-func searchVectors(this js.Value, args []js.Value) interface{} {
-	if len(args) < 2 {
-		return errorResult("requires 2 args: vectorJSON (string), k (int)")
-	}
-	if vectorStore == nil {
-		return errorResult("vector store not initialized")
-	}
-
-	var vec []float32
-	if err := json.Unmarshal([]byte(args[0].String()), &vec); err != nil {
-		return errorResult("invalid vector json: " + err.Error())
-	}
-	k := args[1].Int()
-
-	uids, err := vectorStore.Search(vec, k)
-	if err != nil {
-		return errorResult("search failed: " + err.Error())
-	}
-
-	// Map back to strings
-	ids := make([]string, 0, len(uids))
-	for _, uid := range uids {
-		if idStr, ok := revIdMap[uid]; ok {
-			ids = append(ids, idStr)
-		} else {
-			// Should not happen if map is consistent
-			// ids = append(ids, fmt.Sprintf("%d", uid))
-		}
-	}
-
-	jsonBytes, _ := json.Marshal(ids)
-	return string(jsonBytes)
-}
-
-// saveVectors persists the index to IndexedDB
-func saveVectors(this js.Value, args []js.Value) interface{} {
-	if vectorStore == nil {
-		return errorResult("vector store not initialized")
-	}
-
-	if err := vectorStore.Save(); err != nil {
-		return errorResult("save failed: " + err.Error())
-	}
-	return successResult("saved")
-}
-
 // indexDocument: [id string, metaJSON string, tokensJSON string]
-// Auto-indexes vector if present in metadata.
 func indexDocument(this js.Value, args []js.Value) interface{} {
 	if len(args) < 3 {
 		return errorResult("requires 3 args: id, metaJSON, tokensJSON")
@@ -244,13 +163,6 @@ func indexDocument(this js.Value, args []js.Value) interface{} {
 	}
 
 	searcher.IndexDocument(id, meta, tokens)
-
-	// Auto-index vector if available and store is initialized
-	if vectorStore != nil && len(meta.Embedding) > 0 {
-		uid := getVectorID(id)
-		// Ignore error for now (e.g. dim mismatch), just log?
-		vectorStore.Add(uid, meta.Embedding)
-	}
 
 	return successResult("indexed " + id)
 }
@@ -420,9 +332,23 @@ func initialize(this js.Value, args []js.Value) interface{} {
 	return successResult("initialized")
 }
 
+// byteToRuneOffset converts a byte offset in a string to a rune (character) offset.
+// JavaScript uses character indices (UTF-16 code units, same as runes for BMP),
+// but Go's string indexing is byte-based. This conversion is critical for correct
+// position mapping when text contains multi-byte UTF-8 characters (smart quotes,
+// em-dashes, accented characters, etc.)
+func byteToRuneOffset(s string, byteOff int) int {
+	return utf8.RuneCountInString(s[:byteOff])
+}
+
+// isWordRune checks if a rune is a word character (letter, digit, or underscore)
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
 // scanImplicit finds known entities in text using Aho-Corasick
 // Args: [text string]
-// Returns: JSON array of decoration spans
+// Returns: JSON array of decoration spans with RUNE offsets (not byte offsets)
 func scanImplicit(this js.Value, args []js.Value) interface{} {
 	if len(args) < 1 {
 		return "[]"
@@ -442,30 +368,34 @@ func scanImplicit(this js.Value, args []js.Value) interface{} {
 	spans := make([]map[string]interface{}, 0, len(matches))
 
 	for _, m := range matches {
-		// Check Word Boundaries
-		// 1. Previous char must be non-alphanumeric (or start of string)
+		// Check Word Boundaries using rune-aware decoding
+		// 1. Previous rune must be non-alphanumeric (or start of string)
 		if m.Start > 0 {
-			prevChar := text[m.Start-1]
-			if isWordChar(prevChar) {
-				continue // "trigger" matching "ge" -> 'g' is word char, skip
+			prevRune, _ := utf8.DecodeLastRuneInString(text[:m.Start])
+			if prevRune != utf8.RuneError && isWordRune(prevRune) {
+				continue
 			}
 		}
 
-		// 2. Next char must be non-alphanumeric (or end of string)
+		// 2. Next rune must be non-alphanumeric (or end of string)
 		if m.End < len(text) {
-			nextChar := text[m.End]
-			if isWordChar(nextChar) {
-				continue // "trigger" matching "ge" -> 'r' is word char, skip
+			nextRune, _ := utf8.DecodeRuneInString(text[m.End:])
+			if nextRune != utf8.RuneError && isWordRune(nextRune) {
+				continue
 			}
 		}
 
 		if len(m.Entities) > 0 {
 			best := dict.SelectBest(getEntityIDs(m.Entities))
 			if best != nil {
+				// Convert byte offsets → rune offsets for JavaScript
+				runeFrom := byteToRuneOffset(text, m.Start)
+				runeTo := byteToRuneOffset(text, m.End)
+
 				spans = append(spans, map[string]interface{}{
 					"type":     "entity_implicit",
-					"from":     m.Start,
-					"to":       m.End,
+					"from":     runeFrom,
+					"to":       runeTo,
 					"label":    best.Label,
 					"kind":     best.Kind.String(),
 					"resolved": true,
@@ -654,18 +584,6 @@ func scanDiscovery(this js.Value, args []js.Value) interface{} {
 	candidates := pipeline.GetCandidates()
 	jsonBytes, _ := json.Marshal(candidates)
 	return string(jsonBytes)
-}
-
-// resolve exposes direct pronoun resolution for testing
-// Args: [pronoun string]
-func resolve(this js.Value, args []js.Value) interface{} {
-	if len(args) < 1 {
-		return errorResult("resolve requires 1 arg")
-	}
-	// Access resolver directly via pipeline (bit of a hack for testing, but useful)
-	// We'd need to expose the Resolver in Conductor publicly or add a method.
-	// For now, let's just return "NotImplemented" or remove this. Only Scan is critical.
-	return errorResult("Use scan() for resolution context")
 }
 
 // Helper: Create error result
@@ -1204,6 +1122,142 @@ func storeListEdges(this js.Value, args []js.Value) interface{} {
 }
 
 // =============================================================================
+// Store Export/Import (OPFS Sync)
+// =============================================================================
+
+// storeExport serializes the SQLite database to a Uint8Array.
+// Args: []
+// Returns: Uint8Array of database bytes (for OPFS persistence)
+func storeExport(this js.Value, args []js.Value) interface{} {
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	data, err := sqlStore.Export()
+	if err != nil {
+		return errorResult("export failed: " + err.Error())
+	}
+
+	// Create a Uint8Array in JS and copy bytes over
+	jsArray := js.Global().Get("Uint8Array").New(len(data))
+	js.CopyBytesToJS(jsArray, data)
+
+	fmt.Printf("[GoKitt] ✅ Exported %d bytes\n", len(data))
+	return jsArray
+}
+
+// storeImport restores the SQLite database from a Uint8Array.
+// Args: [data Uint8Array]
+func storeImport(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("storeImport requires 1 arg: data (Uint8Array)")
+	}
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	jsArray := args[0]
+	length := jsArray.Get("length").Int()
+	data := make([]byte, length)
+	js.CopyBytesToGo(data, jsArray)
+
+	if err := sqlStore.Import(data); err != nil {
+		return errorResult("import failed: " + err.Error())
+	}
+
+	fmt.Printf("[GoKitt] ✅ Imported %d bytes\n", length)
+	return successResult(fmt.Sprintf("imported %d bytes", length))
+}
+
+// =============================================================================
+// Store Folder CRUD
+// =============================================================================
+
+// storeUpsertFolder inserts or updates a folder.
+// Args: [folderJSON string]
+func storeUpsertFolder(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("storeUpsertFolder requires 1 arg: folderJSON")
+	}
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	var folder store.Folder
+	if err := json.Unmarshal([]byte(args[0].String()), &folder); err != nil {
+		return errorResult("invalid folder json: " + err.Error())
+	}
+
+	if err := sqlStore.UpsertFolder(&folder); err != nil {
+		return errorResult("upsert failed: " + err.Error())
+	}
+
+	return successResult("upserted " + folder.ID)
+}
+
+// storeGetFolder retrieves a folder by ID.
+// Args: [id string]
+// Returns: Folder JSON or null
+func storeGetFolder(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("storeGetFolder requires 1 arg: id")
+	}
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	folder, err := sqlStore.GetFolder(args[0].String())
+	if err != nil {
+		return errorResult("get failed: " + err.Error())
+	}
+	if folder == nil {
+		return "null"
+	}
+
+	bytes, _ := json.Marshal(folder)
+	return string(bytes)
+}
+
+// storeDeleteFolder deletes a folder by ID.
+// Args: [id string]
+func storeDeleteFolder(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("storeDeleteFolder requires 1 arg: id")
+	}
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	if err := sqlStore.DeleteFolder(args[0].String()); err != nil {
+		return errorResult("delete failed: " + err.Error())
+	}
+
+	return successResult("deleted")
+}
+
+// storeListFolders returns all folders, optionally filtered by parent.
+// Args: [parentID string (optional)]
+// Returns: JSON array of folders
+func storeListFolders(this js.Value, args []js.Value) interface{} {
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	var parentID string
+	if len(args) > 0 && args[0].String() != "" && args[0].String() != "null" {
+		parentID = args[0].String()
+	}
+
+	folders, err := sqlStore.ListFolders(parentID)
+	if err != nil {
+		return errorResult("list failed: " + err.Error())
+	}
+
+	bytes, _ := json.Marshal(folders)
+	return string(bytes)
+}
+
+// =============================================================================
 // Phase 3: Graph Merger API
 // =============================================================================
 
@@ -1488,4 +1542,488 @@ func sabGetBufferStatus(this js.Value, args []js.Value) interface{} {
 		"bufferSize":  sharedBuffer.Length(),
 	})
 	return string(result)
+}
+
+// =============================================================================
+// Phase 6: LLM Batch + Extraction + Agent WASM Bridge
+// =============================================================================
+
+// makePromise creates a JS Promise and returns it along with resolve/reject functions.
+func makePromise() (promise js.Value, resolve js.Value, reject js.Value) {
+	var resolveFn, rejectFn js.Value
+	handler := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		resolveFn = args[0]
+		rejectFn = args[1]
+		return nil
+	})
+	defer handler.Release()
+
+	promise = js.Global().Get("Promise").New(handler)
+	return promise, resolveFn, rejectFn
+}
+
+// jsBatchInit initializes the batch service with provider config.
+// Args: configJSON (string) - JSON with provider, apiKey, model fields
+// Returns: JSON result
+func jsBatchInit(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("batchInit: config JSON required")
+	}
+
+	configJSON := args[0].String()
+	var config batch.Config
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return errorResult(fmt.Sprintf("batchInit: invalid config: %v", err))
+	}
+
+	if batchSvc == nil {
+		batchSvc = batch.NewService(config)
+	} else {
+		batchSvc.UpdateConfig(config)
+	}
+
+	// Initialize extraction and agent services
+	extractionSvc = extraction.NewService(batchSvc)
+	agentSvc = agent.NewService(batchSvc)
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"success":  true,
+		"provider": string(config.Provider),
+		"model":    batchSvc.GetCurrentModel(),
+	})
+	return string(result)
+}
+
+// jsExtractFromNote performs unified entity + relation extraction via LLM.
+// Args: text (string), knownEntitiesJSON (string, optional)
+// Returns: Promise<JSON> with {entities: [...], relations: [...]}
+func jsExtractFromNote(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("extractFromNote: text required")
+	}
+
+	text := args[0].String()
+	var knownEntities []string
+	if len(args) > 1 && !args[1].IsUndefined() && !args[1].IsNull() {
+		json.Unmarshal([]byte(args[1].String()), &knownEntities)
+	}
+
+	promise, resolve, reject := makePromise()
+
+	go func() {
+		if extractionSvc == nil {
+			reject.Invoke(js.Global().Get("Error").New("extractFromNote: service not initialized (call batchInit first)"))
+			return
+		}
+
+		result, err := extractionSvc.ExtractFromNote(context.Background(), text, knownEntities)
+		if err != nil {
+			reject.Invoke(js.Global().Get("Error").New(fmt.Sprintf("extractFromNote: %v", err)))
+			return
+		}
+
+		jsonBytes, _ := json.Marshal(result)
+		resolve.Invoke(string(jsonBytes))
+	}()
+
+	return promise
+}
+
+// jsExtractEntities extracts entities only from text.
+// Args: text (string)
+// Returns: Promise<JSON> with entity array
+func jsExtractEntities(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("extractEntities: text required")
+	}
+
+	text := args[0].String()
+
+	promise, resolve, reject := makePromise()
+
+	go func() {
+		if extractionSvc == nil {
+			reject.Invoke(js.Global().Get("Error").New("extractEntities: service not initialized"))
+			return
+		}
+
+		entities, err := extractionSvc.ExtractEntitiesFromNote(context.Background(), text)
+		if err != nil {
+			reject.Invoke(js.Global().Get("Error").New(fmt.Sprintf("extractEntities: %v", err)))
+			return
+		}
+
+		jsonBytes, _ := json.Marshal(entities)
+		resolve.Invoke(string(jsonBytes))
+	}()
+
+	return promise
+}
+
+// jsExtractRelations extracts relations only from text.
+// Args: text (string), knownEntitiesJSON (string, optional)
+// Returns: Promise<JSON> with relation array
+func jsExtractRelations(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("extractRelations: text required")
+	}
+
+	text := args[0].String()
+	var knownEntities []string
+	if len(args) > 1 && !args[1].IsUndefined() && !args[1].IsNull() {
+		json.Unmarshal([]byte(args[1].String()), &knownEntities)
+	}
+
+	promise, resolve, reject := makePromise()
+
+	go func() {
+		if extractionSvc == nil {
+			reject.Invoke(js.Global().Get("Error").New("extractRelations: service not initialized"))
+			return
+		}
+
+		relations, err := extractionSvc.ExtractRelationsFromNote(context.Background(), text, knownEntities)
+		if err != nil {
+			reject.Invoke(js.Global().Get("Error").New(fmt.Sprintf("extractRelations: %v", err)))
+			return
+		}
+
+		jsonBytes, _ := json.Marshal(relations)
+		resolve.Invoke(string(jsonBytes))
+	}()
+
+	return promise
+}
+
+// jsAgentChatWithTools performs a non-streaming LLM call with tool schemas.
+// Args: messagesJSON (string), toolsJSON (string), systemPrompt (string)
+// Returns: Promise<JSON> with {content, tool_calls}
+func jsAgentChatWithTools(this js.Value, args []js.Value) interface{} {
+	if len(args) < 2 {
+		return errorResult("agentChatWithTools: messagesJSON and toolsJSON required")
+	}
+
+	messagesJSON := args[0].String()
+	toolsJSON := args[1].String()
+	systemPrompt := ""
+	if len(args) > 2 && !args[2].IsUndefined() && !args[2].IsNull() {
+		systemPrompt = args[2].String()
+	}
+
+	promise, resolve, reject := makePromise()
+
+	go func() {
+		if agentSvc == nil {
+			reject.Invoke(js.Global().Get("Error").New("agentChatWithTools: service not initialized (call batchInit first)"))
+			return
+		}
+
+		// Parse messages
+		var messages []agent.Message
+		if err := json.Unmarshal([]byte(messagesJSON), &messages); err != nil {
+			reject.Invoke(js.Global().Get("Error").New(fmt.Sprintf("agentChatWithTools: invalid messages: %v", err)))
+			return
+		}
+
+		// Parse tool definitions
+		var tools []agent.ToolDefinition
+		if err := json.Unmarshal([]byte(toolsJSON), &tools); err != nil {
+			reject.Invoke(js.Global().Get("Error").New(fmt.Sprintf("agentChatWithTools: invalid tools: %v", err)))
+			return
+		}
+
+		result, err := agentSvc.ChatWithTools(context.Background(), messages, tools, systemPrompt)
+		if err != nil {
+			reject.Invoke(js.Global().Get("Error").New(fmt.Sprintf("agentChatWithTools: %v", err)))
+			return
+		}
+
+		jsonBytes, _ := json.Marshal(result)
+		resolve.Invoke(string(jsonBytes))
+	}()
+
+	return promise
+}
+
+// =============================================================================
+// Phase 7: Observational Memory + Chat Service Bridge
+// =============================================================================
+
+// jsChatInit initializes the chat service with OpenRouter config.
+// Args: configJSON (string) - JSON with apiKey and model
+func jsChatInit(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	if sqlStore == nil {
+		return errorResult("store not initialized")
+	}
+
+	var config struct {
+		APIKey string `json:"apiKey"`
+		Model  string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(args[0].String()), &config); err != nil {
+		return errorResult(fmt.Sprintf("invalid config: %v", err))
+	}
+
+	// Initialize Memory Extractor
+	memorySvc = memory.NewExtractor(memory.ExtractorConfig{
+		Store:         sqlStore,
+		OpenRouterKey: config.APIKey,
+		Model:         config.Model,
+	})
+
+	// Initialize Chat Service
+	chatSvc = chat.NewChatService(sqlStore, memorySvc)
+
+	return successResult("Chat service initialized")
+}
+
+// jsChatCreateThread creates a new chat thread.
+// Args: worldID, narrativeID (strings)
+func jsChatCreateThread(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 2 {
+		return errorResult("missing arguments")
+	}
+
+	thread, err := chatSvc.CreateThread(args[0].String(), args[1].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	jsonBytes, _ := json.Marshal(thread)
+	return string(jsonBytes)
+}
+
+// jsChatGetThread retrieves a thread by ID.
+// Args: id (string)
+func jsChatGetThread(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	thread, err := chatSvc.GetThread(args[0].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+	if thread == nil {
+		return js.Null()
+	}
+
+	jsonBytes, _ := json.Marshal(thread)
+	return string(jsonBytes)
+}
+
+// jsChatListThreads lists threads, optionally filtered by worldID.
+// Args: worldID (string, optional)
+func jsChatListThreads(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+
+	worldID := ""
+	if len(args) > 0 {
+		worldID = args[0].String()
+	}
+
+	threads, err := chatSvc.ListThreads(worldID)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	jsonBytes, _ := json.Marshal(threads)
+	return string(jsonBytes)
+}
+
+// jsChatDeleteThread deletes a thread.
+// Args: id (string)
+func jsChatDeleteThread(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	if err := chatSvc.DeleteThread(args[0].String()); err != nil {
+		return errorResult(err.Error())
+	}
+
+	return successResult("Thread deleted")
+}
+
+// jsChatAddMessage adds a message to a thread.
+// Args: threadID, role, content, narrativeID (strings)
+func jsChatAddMessage(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 4 {
+		return errorResult("missing arguments")
+	}
+
+	msg, err := chatSvc.AddMessage(
+		args[0].String(), // threadID
+		args[1].String(), // role
+		args[2].String(), // content
+		args[3].String(), // narrativeID
+	)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	jsonBytes, _ := json.Marshal(msg)
+	return string(jsonBytes)
+}
+
+// jsChatGetMessages retrieves messages for a thread.
+// Args: threadID (string)
+func jsChatGetMessages(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	msgs, err := chatSvc.GetMessages(args[0].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	jsonBytes, _ := json.Marshal(msgs)
+	return string(jsonBytes)
+}
+
+// jsChatUpdateMessage updates message content.
+// Args: messageID, content (strings)
+func jsChatUpdateMessage(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 2 {
+		return errorResult("missing arguments")
+	}
+
+	if err := chatSvc.UpdateMessage(args[0].String(), args[1].String()); err != nil {
+		return errorResult(err.Error())
+	}
+
+	return successResult("Message updated")
+}
+
+// jsChatAppendMessage appends content to a message.
+// Args: messageID, chunk (strings)
+func jsChatAppendMessage(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 2 {
+		return errorResult("missing arguments")
+	}
+
+	if err := chatSvc.AppendMessageContent(args[0].String(), args[1].String()); err != nil {
+		return errorResult(err.Error())
+	}
+
+	return successResult("Message appended")
+}
+
+// jsChatStartStreaming creates a new streaming assistant message.
+// Args: threadID, narrativeID (strings)
+func jsChatStartStreaming(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 2 {
+		return errorResult("missing arguments")
+	}
+
+	msg, err := chatSvc.StartStreamingMessage(args[0].String(), args[1].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	jsonBytes, _ := json.Marshal(msg)
+	return string(jsonBytes)
+}
+
+// jsChatGetMemories retrieves memories for a thread.
+// Args: threadID (string)
+func jsChatGetMemories(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	memories, err := chatSvc.GetMemories(args[0].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	jsonBytes, _ := json.Marshal(memories)
+	return string(jsonBytes)
+}
+
+// jsChatGetContext retrieves context string (with memories) for a thread.
+// Args: threadID (string)
+func jsChatGetContext(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	ctxStr, err := chatSvc.GetContextWithMemories(args[0].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	return ctxStr
+}
+
+// jsChatClearThread clears all messages in a thread.
+// Args: threadID (string)
+func jsChatClearThread(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	if err := chatSvc.ClearThread(args[0].String()); err != nil {
+		return errorResult(err.Error())
+	}
+
+	return successResult("Thread cleared")
+}
+
+// jsChatExportThread exports thread messages as JSON.
+// Args: threadID (string)
+func jsChatExportThread(this js.Value, args []js.Value) interface{} {
+	if chatSvc == nil {
+		return errorResult("chat service not initialized")
+	}
+	if len(args) < 1 {
+		return errorResult("missing arguments")
+	}
+
+	jsonStr, err := chatSvc.ExportThread(args[0].String())
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	return jsonStr
 }

@@ -1,7 +1,8 @@
 
-import { Component, signal, OnInit } from '@angular/core';
+import { Component, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
+import { getSetting, setSetting } from '../../../../lib/dexie/settings.service';
 
 
 // Domain Components
@@ -14,13 +15,15 @@ import { PoliticsComponent } from './tabs/politics.component';
 
 import { MysteryComponent } from './tabs/mystery.component';
 
-export type WorldBuildingTabId = 'overview' | 'geography' | 'culture' | 'magic' | 'religion' | 'politics' | 'mystery';
+type WorldbuildingTabId = 'overview' | 'geography' | 'culture' | 'magic' | 'religion' | 'politics' | 'mystery';
 
 interface TabDef {
-    id: WorldBuildingTabId;
+    id: WorldbuildingTabId;
     label: string;
     icon: string; // PrimeIcons class
 }
+
+const STORAGE_KEY = 'kittclouds-worldbuilding-tab';
 
 @Component({
     selector: 'app-worldbuilding-tab',
@@ -42,7 +45,6 @@ interface TabDef {
     `]
 })
 export class WorldbuildingTabComponent implements OnInit {
-
     // Tab Definitions
     tabs: TabDef[] = [
         { id: 'overview', label: 'Overview', icon: 'pi pi-globe' },
@@ -54,16 +56,25 @@ export class WorldbuildingTabComponent implements OnInit {
         { id: 'mystery', label: 'Mystery', icon: 'pi pi-question-circle' },
     ];
 
-    // State
-    activeTabId = signal<WorldBuildingTabId>('overview');
+    // Local state with Dexie settings persistence
+    private _activeTabId = signal<WorldbuildingTabId>(this.loadFromStorage());
+
+    activeTabId = computed(() => this._activeTabId());
 
     constructor() { }
 
     ngOnInit() {
-        // Future: Check query params or local storage to restore active tab
+        // State persisted to Dexie settings
     }
 
-    setActiveTab(id: WorldBuildingTabId) {
-        this.activeTabId.set(id);
+    private loadFromStorage(): WorldbuildingTabId {
+        const stored = getSetting<WorldbuildingTabId | null>(STORAGE_KEY, null);
+        if (stored && this.tabs.some(t => t.id === stored)) return stored;
+        return 'overview';
+    }
+
+    setActiveTab(id: WorldbuildingTabId) {
+        this._activeTabId.set(id);
+        setSetting(STORAGE_KEY, id);
     }
 }

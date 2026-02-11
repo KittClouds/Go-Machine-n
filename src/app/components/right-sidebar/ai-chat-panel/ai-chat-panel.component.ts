@@ -2,8 +2,12 @@
  * AI Chat Panel Component
  * 
  * Wraps quikchat vanilla JS library with Angular integration.
- * Uses AiChatService for Nebula + Cozo persistence.
- * Supports OpenRouter and Google GenAI as LLM providers.
+ * Uses GoChatService for Go/SQLite persistence + memory extraction.
+ * Uses OpenRouter/GoogleGenAI for LLM streaming.
+ * 
+ * Architecture:
+ * - GoChatService: Persistence, memory extraction, thread management (Go WASM)
+ * - OpenRouterService/GoogleGenAIService: Live LLM streaming (TypeScript)
  */
 
 import {
@@ -18,7 +22,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule, Trash2, Download, Plus, Settings, Send, History, ArrowLeft, Database } from 'lucide-angular';
-import { AiChatService } from '../../../lib/services/ai-chat.service';
+import { GoChatService, type Thread, type ThreadMessage } from '../../../lib/services/go-chat.service';
 import { OpenRouterService, OpenRouterMessage, ToolCallResponse } from '../../../lib/services/openrouter.service';
 import { GoogleGenAIService, GoogleGenAIMessage } from '../../../lib/services/google-genai.service';
 import { GoKittService } from '../../../services/gokitt.service';
@@ -240,10 +244,10 @@ Keep responses concise but helpful. If you don't know something specific about t
                     @for (session of sessions(); track session.id) {
                         <button 
                             class="w-full p-3 text-left rounded-lg border transition-all"
-                            [class.border-teal-500]="session.id === chatService.sessionId()"
-                            [class.bg-teal-500/10]="session.id === chatService.sessionId()"
-                            [class.border-border/50]="session.id !== chatService.sessionId()"
-                            [class.hover:bg-muted/50]="session.id !== chatService.sessionId()"
+                            [class.border-teal-500]="session.id === goChatService.currentThread()?.id"
+                            [class.bg-teal-500/10]="session.id === goChatService.currentThread()?.id"
+                            [class.border-border/50]="session.id !== goChatService.currentThread()?.id"
+                            [class.hover:bg-muted/50]="session.id !== goChatService.currentThread()?.id"
                             (click)="selectSession(session.id)"
                         >
                             <div class="flex items-center justify-between">
@@ -596,12 +600,18 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
     @ViewChild('chatContainer', { static: true })
     chatContainer!: ElementRef<HTMLDivElement>;
 
-    chatService = inject(AiChatService);
+    // GoChatService for persistence + memory (Go WASM)
+    goChatService = inject(GoChatService);
+    // Streaming services (TypeScript)
     openRouter = inject(OpenRouterService);
     googleGenAI = inject(GoogleGenAIService);
     private goKittService = inject(GoKittService);
     private noteEditorStore = inject(NoteEditorStore);
     editorBridge = inject(EditorAgentBridge);
+    // Track Go batch init for agentic chat
+    private goBatchInitialized = false;
+    // Track Go chat init
+    private goChatInitialized = false;
 
     // Icon references for template
     readonly PlusIcon = Plus;
@@ -657,6 +667,27 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
             this.activeProvider.set('google');
         } else if (this.openRouter.isConfigured()) {
             this.activeProvider.set('openrouter');
+        }
+
+        // Initialize Go chat service
+        this.initGoChatService();
+    }
+
+    /**
+     * Initialize Go chat service with OpenRouter config.
+     * This enables persistence + memory extraction.
+     */
+    private async initGoChatService(): Promise<void> {
+        if (this.goChatInitialized) return;
+
+        const orConfig = this.openRouter.config();
+        if (orConfig?.apiKey) {
+            await this.goChatService.init({
+                apiKey: orConfig.apiKey,
+                model: orConfig.model || 'meta-llama/llama-3.3-70b-instruct:free'
+            });
+            this.goChatInitialized = true;
+            console.log('[AiChatPanel] Go chat service initialized');
         }
     }
 
@@ -723,20 +754,16 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
     }
 
     private loadSessions(): void {
-        // Get session list from CozoDB via AiChatService
-        const sessionIds = this.chatService.getAllSessions();
+        // Get thread list from Go WASM
+        const threads = this.goChatService.threads();
 
-        // Build session info (in a real app, we'd query for message counts & previews)
-        const sessions: SessionInfo[] = sessionIds.map(id => {
-            // Extract timestamp from session ID format: session-{timestamp}-{random}
-            const parts = id.split('-');
-            const timestamp = parts.length >= 2 ? parseInt(parts[1], 10) : Date.now();
-
+        // Build session info from threads
+        const sessions: SessionInfo[] = threads.map((thread: Thread) => {
             return {
-                id,
+                id: thread.id,
                 messageCount: 0, // Would require additional query
-                createdAt: timestamp,
-                preview: undefined,
+                createdAt: thread.created_at,
+                preview: thread.title || undefined,
             };
         });
 
@@ -744,7 +771,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
     }
 
     async selectSession(sessionId: string): Promise<void> {
-        await this.chatService.switchSession(sessionId);
+        await this.goChatService.loadThread(sessionId);
         this.showHistory.set(false);
 
         // Reload chat with new session messages
@@ -818,7 +845,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
         this.restoreHistory();
 
         // Welcome message if empty
-        if (this.chatService.messageCount() === 0) {
+        if (this.goChatService.messageCount() === 0) {
             this.chat.messageAddNew(
                 'Hello! I\'m Kammi, your AI assistant. How can I help you with your world-building today? ✨',
                 'Kammi',
@@ -828,7 +855,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
     }
 
     private restoreHistory(): void {
-        const messages = this.chatService.messages();
+        const messages = this.goChatService.messages();
         for (const msg of messages) {
             const side = msg.role === 'user' ? 'right' : 'left';
             const sender = msg.role === 'user' ? 'You' : 'Kammi';
@@ -843,9 +870,9 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
     private async onUserMessage(instance: any, text: string): Promise<void> {
         if (!text.trim()) return;
 
-        // Add user message to UI and persist
+        // Add user message to UI and persist via Go
         instance.messageAddNew(text, 'You', 'right');
-        await this.chatService.addUserMessage(text);
+        await this.goChatService.addUserMessage(text);
 
         // Check if any provider is configured
         const googleConfigured = this.googleGenAI.isConfigured();
@@ -901,7 +928,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
                     instance.messageAppendContent(botMsgId, chunk);
                 },
                 onComplete: async (response) => {
-                    await this.chatService.addAssistantMessage(response);
+                    await this.goChatService.addAssistantMessage(response);
                     this.currentBotMsgId = null;
                 },
                 onError: (error) => {
@@ -918,7 +945,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
                     instance.messageAppendContent(botMsgId, chunk);
                 },
                 onComplete: async (response) => {
-                    await this.chatService.addAssistantMessage(response);
+                    await this.goChatService.addAssistantMessage(response);
                     this.currentBotMsgId = null;
                 },
                 onError: (error) => {
@@ -968,7 +995,26 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
                 iterations++;
                 console.log(`[AiChatPanel] Agentic loop iteration ${iterations}`);
 
-                const result = await this.openRouter.chatWithTools(
+                // Initialize Go batch with OpenRouter config on first call
+                if (!this.goBatchInitialized) {
+                    const orConfig = this.openRouter.config();
+                    if (orConfig?.apiKey) {
+                        const initResult = await this.goKittService.batchInit({
+                            provider: 'openrouter',
+                            openRouterApiKey: orConfig.apiKey,
+                            openRouterModel: orConfig.model || 'meta-llama/llama-3.3-70b-instruct:free'
+                        });
+                        if (initResult.success) {
+                            this.goBatchInitialized = true;
+                            console.log('[AiChatPanel] Go batch initialized for agent:', initResult.provider, initResult.model);
+                        } else {
+                            throw new Error(`Go batch init failed: ${initResult.error}`);
+                        }
+                    }
+                }
+
+                // Use Go WASM for non-streaming tool-calling completion
+                const result = await this.goKittService.agentChatWithTools(
                     messages,
                     ALL_TOOLS,
                     KAMMI_SYSTEM_PROMPT
@@ -977,7 +1023,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
                 // If model returned content, we're done
                 if (result.content && !result.tool_calls?.length) {
                     instance.messageReplaceContent(botMsgId, result.content);
-                    await this.chatService.addAssistantMessage(result.content);
+                    await this.goChatService.addAssistantMessage(result.content);
                     this.currentBotMsgId = null;
                     return;
                 }
@@ -1033,7 +1079,7 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
         const messages: OpenRouterMessage[] = [];
 
         // Add recent conversation history (last 10 messages for context)
-        const history = this.chatService.messages().slice(-10);
+        const history = this.goChatService.messages().slice(-10);
         for (const msg of history) {
             if (msg.role === 'user' || msg.role === 'assistant') {
                 messages.push({
@@ -1056,29 +1102,30 @@ export class AiChatPanelComponent implements AfterViewInit, OnDestroy {
     // Public Actions
     // -------------------------------------------------------------------------
 
-    newSession(): void {
-        this.chatService.newSession();
+    async newSession(): Promise<void> {
+        await this.goChatService.newSession();
         if (this.chat) {
             this.chatContainer.nativeElement.innerHTML = '';
             this.initializeChat();
         }
     }
 
-    clearChat(): void {
-        this.chatService.clearSession();
+    async clearChat(): Promise<void> {
+        await this.goChatService.clearThread();
         if (this.chat) {
             this.chatContainer.nativeElement.innerHTML = '';
             this.initializeChat();
         }
     }
 
-    exportChat(): void {
-        const json = this.chatService.exportHistory();
+    async exportChat(): Promise<void> {
+        const json = await this.goChatService.exportThread();
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `chat-${this.chatService.sessionId()}.json`;
+        const threadId = this.goChatService.currentThread()?.id || 'unknown';
+        a.download = `chat-${threadId}.json`;
         a.click();
         URL.revokeObjectURL(url);
     }

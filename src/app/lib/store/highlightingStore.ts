@@ -1,8 +1,9 @@
 // src/app/lib/store/highlightingStore.ts
-// Highlighting Mode Settings - Pure TypeScript Store with localStorage persistence
+// Highlighting Mode Settings - Pure TypeScript Store with Dexie persistence
 // Controls how entities are decorated in the editor with LIVE updates
 
 import type { EntityKind } from '../Scanner/types';
+import { getSetting, setSetting } from '../dexie/settings.service';
 
 // ============================================
 // TYPES
@@ -70,7 +71,7 @@ class HighlightingStore {
     private snapshot: HighlightSettings;
 
     constructor() {
-        // Load from localStorage on construction
+        // Load from Dexie settings (already in memory from boot cache)
         this.settings = this.loadFromStorage();
         this.snapshot = this.settings; // Initial snapshot
     }
@@ -153,28 +154,15 @@ class HighlightingStore {
     // ============================================
 
     private loadFromStorage(): HighlightSettings {
-        try {
-            if (typeof localStorage === 'undefined') {
-                return { ...DEFAULT_HIGHLIGHT_SETTINGS };
-            }
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                return { ...DEFAULT_HIGHLIGHT_SETTINGS, ...parsed };
-            }
-        } catch (e) {
-            console.warn('[HighlightingStore] Failed to load from localStorage:', e);
+        const stored = getSetting<Partial<HighlightSettings> | null>(STORAGE_KEY, null);
+        if (stored) {
+            return { ...DEFAULT_HIGHLIGHT_SETTINGS, ...stored };
         }
         return { ...DEFAULT_HIGHLIGHT_SETTINGS };
     }
 
     private saveToStorage(): void {
-        try {
-            if (typeof localStorage === 'undefined') return;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
-        } catch (e) {
-            console.warn('[HighlightingStore] Failed to save to localStorage:', e);
-        }
+        setSetting(STORAGE_KEY, this.settings);
     }
 
     reset(): void {

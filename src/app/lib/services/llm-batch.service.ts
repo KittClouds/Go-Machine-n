@@ -12,6 +12,7 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
+import { getSetting, setSetting } from '../dexie/settings.service';
 
 export type LlmProvider = 'google' | 'openrouter';
 
@@ -76,14 +77,8 @@ export class LlmBatchService {
     // =========================================================================
 
     private loadConfig(): LlmBatchConfig {
-        try {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                return JSON.parse(saved);
-            }
-        } catch (e) {
-            console.warn('[LlmBatch] Failed to load config:', e);
-        }
+        const saved = getSetting<LlmBatchConfig | null>(STORAGE_KEY, null);
+        if (saved) return saved;
         return {
             provider: 'openrouter',
             googleApiKey: '',
@@ -94,7 +89,7 @@ export class LlmBatchService {
     }
 
     private saveConfig() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this._config()));
+        setSetting(STORAGE_KEY, this._config());
     }
 
     getConfig(): LlmBatchConfig {
@@ -110,128 +105,4 @@ export class LlmBatchService {
         });
     }
 
-    // =========================================================================
-    // Direct API Calls - NO STREAMING
-    // =========================================================================
-
-    /**
-     * Make a completion request and get the FULL response.
-     * NO streaming. Direct fetch. Complete response only.
-     */
-    async complete(userPrompt: string, systemPrompt?: string): Promise<string> {
-        const cfg = this._config();
-
-        if (cfg.provider === 'google') {
-            return this.callGoogleDirect(userPrompt, systemPrompt, cfg);
-        } else {
-            return this.callOpenRouterDirect(userPrompt, systemPrompt, cfg);
-        }
-    }
-
-    /**
-     * Direct Google GenAI call - NO streaming
-     */
-    private async callGoogleDirect(
-        userPrompt: string,
-        systemPrompt: string | undefined,
-        cfg: LlmBatchConfig
-    ): Promise<string> {
-        if (!cfg.googleApiKey) {
-            throw new Error('[LlmBatch] Google API key not configured');
-        }
-
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.googleModel}:generateContent?key=${cfg.googleApiKey}`;
-
-        const body: any = {
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            generationConfig: {
-                temperature: 0.3, // Lower for structured output
-                maxOutputTokens: 4096
-            }
-        };
-
-        if (systemPrompt) {
-            body.systemInstruction = { parts: [{ text: systemPrompt }] };
-        }
-
-        console.log(`[LlmBatch] Calling Google ${cfg.googleModel} (NON-STREAMING)`);
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Google API error ${response.status}: ${errorText}`);
-        }
-
-        const data = await response.json();
-
-        // Extract text from response
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) {
-            console.warn('[LlmBatch] Empty response from Google:', data);
-            return '';
-        }
-
-        console.log(`[LlmBatch] Google response: ${text.length} chars`);
-        return text;
-    }
-
-    /**
-     * Direct OpenRouter call - NO streaming
-     */
-    private async callOpenRouterDirect(
-        userPrompt: string,
-        systemPrompt: string | undefined,
-        cfg: LlmBatchConfig
-    ): Promise<string> {
-        if (!cfg.openRouterApiKey) {
-            throw new Error('[LlmBatch] OpenRouter API key not configured');
-        }
-
-        const messages: any[] = [];
-
-        if (systemPrompt) {
-            messages.push({ role: 'system', content: systemPrompt });
-        }
-        messages.push({ role: 'user', content: userPrompt });
-
-        console.log(`[LlmBatch] Calling OpenRouter ${cfg.openRouterModel} (NON-STREAMING)`);
-
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${cfg.openRouterApiKey}`,
-                'HTTP-Referer': window.location.origin,
-                'X-Title': 'KittClouds'
-            },
-            body: JSON.stringify({
-                model: cfg.openRouterModel,
-                messages,
-                temperature: 0.3,
-                max_tokens: 4096,
-                stream: false // EXPLICITLY NO STREAMING
-            })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`OpenRouter API error ${response.status}: ${errorText}`);
-        }
-
-        const data = await response.json();
-
-        const text = data.choices?.[0]?.message?.content;
-        if (!text) {
-            console.warn('[LlmBatch] Empty response from OpenRouter:', data);
-            return '';
-        }
-
-        console.log(`[LlmBatch] OpenRouter response: ${text.length} chars`);
-        return text;
-    }
 }

@@ -30,7 +30,7 @@ export const PERSISTED_RELATIONS = [
     'network_instance', 'network_membership', 'network_relationship',
     'node_vectors', 'entity_clusters', 'cluster_members', 'cooccurrence_edges',
     // LLM Memory relations
-    'episode_log', 'blocks', 'chat_messages'
+    'episode_log', 'blocks'  // NOTE: chat_messages removed - now using Go/SQLite
 ];
 
 export class CozoDbService {

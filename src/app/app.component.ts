@@ -18,7 +18,7 @@ import { getNavigationApi } from './api/navigation-api';
 import { NotesService } from './lib/dexie/notes.service';
 import { NoteEditorStore } from './lib/store/note-editor.store';
 import { setGoSqliteBridge } from './lib/operations';
-import { AppStore } from './lib/ngrx';
+import { getSetting } from './lib/dexie/settings.service';
 import * as ops from './lib/operations';
 
 @Component({
@@ -38,7 +38,6 @@ export class AppComponent implements OnInit, OnDestroy {
   private projectionCache = inject(ProjectionCacheService);
   private notesService = inject(NotesService);
   private noteEditorStore = inject(NoteEditorStore);
-  private appStore = inject(AppStore);
 
 
   // Navigation API subscriptions
@@ -64,55 +63,67 @@ export class AppComponent implements OnInit, OnDestroy {
     console.log('[AppComponent] Starting orchestrated boot...');
 
     try {
-      // Phase 1: Data Layer - Dexie + Seed
+      // Phase 1: Seed (fast, sync schemas)
       await seedDefaultSchemas();
       console.log('[AppComponent] ✓ Seed complete');
-      this.orchestrator.completePhase('data_layer');
 
-      // Phase 2: Registry + CozoDB - hydrate from Dexie (parallel with WASM load)
-      const registryPromise = smartGraphRegistry.init().then(async () => {
-        console.log('[AppComponent] ✓ SmartGraphRegistry hydrated');
-        this.orchestrator.completePhase('registry');
+      // Phase 2: Registry (from Dexie cache — ~1ms)
+      await smartGraphRegistry.init();
+      console.log('[AppComponent] ✓ SmartGraphRegistry hydrated');
+      this.orchestrator.completePhase('registry');
 
-        // Initialize CozoDB (WASM + persistence)
-        await cozoDb.init();
-        console.log('[AppComponent] ✓ CozoDB initialized');
+      // Phase 3: WASM Load (parallel with CozoDB background init)
+      // Start CozoDB in background — NOT on critical path
+      const cozoPromise = cozoDb.init().then(() => {
+        console.log('[AppComponent] ✓ CozoDB initialized (background)');
+      }).catch(err => {
+        console.error('[AppComponent] CozoDB background init failed:', err);
       });
 
-      // Phase 3: WASM Load - load module (parallel with registry)
-      const wasmLoadPromise = this.goKitt.loadWasm().then(() => {
-        console.log('[AppComponent] ✓ WASM module loaded');
-        this.orchestrator.completePhase('wasm_load');
-      });
+      // WASM load is the critical gate
+      await this.goKitt.loadWasm();
+      console.log('[AppComponent] ✓ WASM module loaded');
+      this.orchestrator.completePhase('wasm_load');
 
-      // Wait for both registry AND wasm to be ready
-      await Promise.all([registryPromise, wasmLoadPromise]);
-
-      // Phase 4: WASM Hydrate - pass entities to GoKitt
+      // Phase 4: WASM Hydrate entities (fast — just entity names for Aho-Corasick)
       await this.goKitt.hydrateWithEntities();
       console.log('[AppComponent] ✓ WASM hydrated with entities');
       this.orchestrator.completePhase('wasm_hydrate');
 
-      // Phase 4.5: DocStore Hydrate - load all notes into Go memory
-      const allNotes = await firstValueFrom(this.notesService.getAllNotes$()) || [];
-      const noteData = allNotes.map((n: any) => ({
-        id: n.id,
-        text: typeof n.content === 'string' ? n.content : JSON.stringify(n.content),
-        version: n.updatedAt ?? 0
-      }));
-      await this.goKitt.hydrateNotes(noteData);
-      console.log(`[AppComponent] ✓ DocStore hydrated with ${noteData.length} notes`);
-
-      // Phase 4.6: GoSQLite-Cozo Bridge - initialize data layer with smart cache
+      // Phase 5: GoSQLite Bridge (OPFS restore — needed for note reads)
       await this.goSqliteBridge.init();
       setGoSqliteBridge(this.goSqliteBridge);
       console.log('[AppComponent] ✓ GoSQLite-Cozo Bridge initialized');
 
-      // Phase 5: Ready
+      // 🚀 APP IS INTERACTIVE — user can see + edit notes
       this.orchestrator.completePhase('ready');
 
-      // Phase 6: Restore last note from NgRx AppStore
+      // Phase 6: Restore last note (first paint!)
       await this.restoreLastNote();
+
+      // ======================================================================
+      // Background tasks (non-blocking, after first paint)
+      // ======================================================================
+
+      // DocStore hydrate (search index) — doesn't block editing
+      const docStorePromise = (async () => {
+        try {
+          const allNotes = await firstValueFrom(this.notesService.getAllNotes$()) || [];
+          const noteData = allNotes.map((n: any) => ({
+            id: n.id,
+            text: typeof n.content === 'string' ? n.content : JSON.stringify(n.content),
+            version: n.updatedAt ?? 0
+          }));
+          await this.goKitt.hydrateNotes(noteData);
+          console.log(`[AppComponent] ✓ DocStore hydrated with ${noteData.length} notes (background)`);
+        } catch (err) {
+          console.error('[AppComponent] DocStore hydration failed:', err);
+        }
+      })();
+
+      // Wait for all background tasks
+      await Promise.all([cozoPromise, docStorePromise]);
+      this.orchestrator.completePhase('background');
 
     } catch (err) {
       console.error('[AppComponent] Boot failed:', err);
@@ -152,26 +163,25 @@ export class AppComponent implements OnInit, OnDestroy {
     this.navUnsubscribe = navigationApi.onNavigate((noteId) => {
       console.log('[AppComponent] Navigation handler triggered:', noteId);
       this.noteEditorStore.openNote(noteId);
-      this.appStore.openNote(noteId); // Track in NgRx for restore
     });
 
     console.log('[AppComponent] ✓ Navigation API wired up');
   }
 
   /**
-   * Restore the last opened note from NgRx AppStore.
-   * Called after WASM and data layer are ready.
+   * Restore the last opened note from Dexie settings.
+   * Uses Dexie (already loaded) for verification — not GoSqlite.
    */
   private async restoreLastNote(): Promise<void> {
-    const lastNoteId = this.appStore.restoreLastNote();
+    const lastNoteId = getSetting<string | null>('kittclouds-last-note-id', null);
 
     if (lastNoteId) {
-      // Verify note still exists
-      const note = await ops.getNote(lastNoteId);
+      // Verify note exists in Dexie (instant — already in IDB)
+      const { db } = await import('./lib/dexie/db');
+      const note = await db.notes.get(lastNoteId);
       if (note) {
         console.log(`[AppComponent] ✓ Restoring last note: ${note.title} (${lastNoteId})`);
         this.noteEditorStore.openNote(lastNoteId);
-        this.appStore.openNote(lastNoteId);
       } else {
         console.log('[AppComponent] Last note no longer exists, starting fresh');
       }

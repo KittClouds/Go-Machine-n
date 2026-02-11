@@ -19,7 +19,7 @@ import { SearchPanelComponent } from '../search-panel/search-panel.component';
 import { NerPanelComponent } from './ner-panel/ner-panel.component';
 import type { TreeNode } from '../../lib/arborist/types';
 import type { Folder as DexieFolder, Note, FolderSchema } from '../../lib/dexie/db';
-import { AppStore } from '../../lib/ngrx';
+import { getSetting, setSetting } from '../../lib/dexie/settings.service';
 
 // Entity folder types for the dropdown (matches reference)
 interface EntityFolderOption {
@@ -60,28 +60,24 @@ export class SidebarComponent implements OnInit, OnDestroy {
     private noteEditorStore = inject(NoteEditorStore);
     private goKittService = inject(GoKittService);
     private router = inject(Router);
-    private appStore = inject(AppStore);
 
     // Subscriptions
     private foldersSubscription?: Subscription;
     private notesSubscription?: Subscription;
 
-    // View Mode State - persisted to localStorage
+    // View Mode State - persisted to Dexie settings
     private static readonly VIEW_STORAGE_KEY = 'kittclouds_sidebar_view';
     viewMode = signal<'files' | 'search' | 'ner'>(this.loadSavedViewMode());
 
     private loadSavedViewMode(): 'files' | 'search' | 'ner' {
-        if (typeof localStorage === 'undefined') return 'files';
-        const saved = localStorage.getItem(SidebarComponent.VIEW_STORAGE_KEY);
+        const saved = getSetting<string | null>(SidebarComponent.VIEW_STORAGE_KEY, null);
         if (saved === 'files' || saved === 'search' || saved === 'ner') return saved;
         return 'files';
     }
 
     setViewMode(mode: 'files' | 'search' | 'ner'): void {
         this.viewMode.set(mode);
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(SidebarComponent.VIEW_STORAGE_KEY, mode);
-        }
+        setSetting(SidebarComponent.VIEW_STORAGE_KEY, mode);
         this.sidebarService.open();
     }
 
@@ -300,7 +296,6 @@ export class SidebarComponent implements OnInit, OnDestroy {
         if (node.type === 'note') {
             // Open note in editor
             this.noteEditorStore.openNote(node.id);
-            this.appStore.openNote(node.id);
         } else {
             // Expand sidebar to show folder contents
             this.sidebarService.open();
@@ -323,7 +318,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
         }
     }
 
-    // setViewMode is defined at the top of the class with localStorage persistence
+    // setViewMode is defined at the top of the class with Dexie settings persistence
 
     // ─────────────────────────────────────────────────────────────
     // Graph Scan

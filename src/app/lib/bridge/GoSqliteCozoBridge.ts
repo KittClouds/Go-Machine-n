@@ -1,31 +1,42 @@
 /**
- * GoSqliteCozoBridge - Unified data layer orchestrating GoSQLite ↔ CozoDB sync
+ * GoSqliteCozoBridge - Unified data layer facade
  * 
- * Architecture:
- * - GoSQLite (Go WASM) = fast in-memory store for UI reads/writes
- * - CozoDB = deep graph engine + durable persistence (OPFS snapshots)
- * - Bridge = keeps them in sync via batch operations
+ * Architecture (Data River):
+ * - GoSQLite (Go WASM) = Source of truth for notes, entities, edges
+ * - CozoDB = Read-only graph engine (lazy hydration from GoSQLite)
+ *            + folders (full schema, Datalog queries for hierarchy)
+ * - OPFS = Durable cold storage (debounced whole-DB sync)
+ * - Dexie = Boot cache only (warmed by write-back, read on cold start)
  * 
- * Smart Boot Strategy:
- * 1. GoSQLite loads from IndexedDB cache (instant boot)
- * 2. Background sync verifies against CozoDB (eventual consistency)
- * 3. Only hydrate from Cozo if cache is stale or missing
+ * Write Flow:
+ *   UI → GoSQLite → markDirty() → [debounce] → OPFS
+ *                  → [fire-and-forget] → Dexie (boot cache warming)
+ *                  → [if entity/edge] → CozoDB invalidate
+ *                  → [if folder] → CozoDB upsert (folder reads come from Cozo)
  * 
- * This replaces NebulaCozoBridge.
+ * Read Flow:
+ *   Notes/Entities/Edges: GoSQLite (direct, fast)
+ *   Folders: CozoDB (full schema with hierarchy fields)
+ *   Graph Queries: CozoHydrator → CozoDB.query()
+ * 
+ * Boot Flow:
+ *   Dexie (instant) → GoSQLite → verify OPFS → lazy hydrate CozoDB
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { GoKittStoreService, StoreNote, StoreEntity, StoreEdge } from '../../services/gokitt-store.service';
+import { GoKittStoreService, StoreNote, StoreEntity, StoreEdge, StoreFolder } from '../../services/gokitt-store.service';
+import { CozoHydrator } from './CozoHydrator';
+import { GoOpfsSyncService } from '../opfs/GoOpfsSyncService';
+import { DexieToCozo, CozoQueries } from './CozoFieldMapper';
 import { cozoDb } from '../cozo/db';
-import { SyncQueue, SyncOp, SyncTable } from './SyncQueue';
-import { DexieToCozo, CozoQueries, CozoToDexie } from './CozoFieldMapper';
+import { db } from '../dexie/db';
 import type { Note, Folder, Entity, Edge } from '../dexie/db';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export type BridgeStatus = 'uninitialized' | 'initializing' | 'hydrating' | 'ready' | 'syncing' | 'error';
+export type BridgeStatus = 'uninitialized' | 'initializing' | 'ready' | 'error';
 
 export interface HydrationReport {
     notes: number;
@@ -33,24 +44,7 @@ export interface HydrationReport {
     entities: number;
     edges: number;
     duration: number;
-    source: 'cache' | 'cozo' | 'none';
-}
-
-interface CozoQueryResult<T = unknown[]> {
-    ok: boolean;
-    rows?: T[];
-    headers?: string[];
-    took?: number;
-    message?: string;
-    display?: string;
-}
-
-// Version tracking for cache invalidation
-interface CacheMetadata {
-    version: number;
-    lastSync: number;
-    noteCount: number;
-    folderCount: number;
+    source: 'idb' | 'opfs' | 'fresh';
 }
 
 // =============================================================================
@@ -60,6 +54,8 @@ interface CacheMetadata {
 @Injectable({ providedIn: 'root' })
 export class GoSqliteCozoBridge {
     private goKittStore = inject(GoKittStoreService);
+    private cozoHydrator = inject(CozoHydrator);
+    private opfsSync = inject(GoOpfsSyncService);
 
     // -------------------------------------------------------------------------
     // State
@@ -67,38 +63,30 @@ export class GoSqliteCozoBridge {
 
     private _status = signal<BridgeStatus>('uninitialized');
     private _lastError = signal<string | null>(null);
-    private _syncInProgress = signal(false);
-    private _cacheHit = signal(false);
+    private _bootReport = signal<HydrationReport | null>(null);
 
     readonly status = this._status.asReadonly();
     readonly lastError = this._lastError.asReadonly();
     readonly isReady = computed(() => this._status() === 'ready');
-    readonly isSyncing = computed(() => this._syncInProgress());
-    readonly hadCacheHit = computed(() => this._cacheHit());
+    readonly isSyncing = computed(() => this.opfsSync.status() === 'syncing');
+    readonly bootReport = this._bootReport.asReadonly();
 
     /** Check if bridge is ready (non-signal version for sync access) */
     isReadySync(): boolean {
         return this._status() === 'ready';
     }
 
-    // Lazy sync queue - ALL mutations go through here
-    private syncQueue = new SyncQueue({
-        batchSize: 50,
-        flushIntervalMs: 1000,
-        debug: false,
-    });
-
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
     /**
-     * Initialize the bridge. Call this after GoKittStoreService is ready.
+     * Initialize the bridge.
      * 
-     * Smart boot sequence:
-     * 1. Check if GoSQLite already has data (IndexedDB cache)
-     * 2. If cached: mark ready immediately, sync in background
-     * 3. If empty: hydrate from CozoDB
+     * Boot sequence:
+     * 1. Ensure GoKittStoreService is initialized
+     * 2. Boot from fastest source (IDB → OPFS → fresh)
+     * 3. Mark ready (CozoDB hydrates lazily on first graph query)
      */
     async init(): Promise<void> {
         if (this._status() !== 'uninitialized') {
@@ -114,26 +102,31 @@ export class GoSqliteCozoBridge {
                 await this.goKittStore.initialize();
             }
 
-            // Check if CozoDB is ready
-            if (!cozoDb.isReady()) {
-                throw new Error('CozoDB not ready');
+            // Boot from fastest available source
+            const startTime = Date.now();
+            const bootSource = await this.opfsSync.boot();
+
+            // If we had BootCache data (pre-loaded from Dexie), use it on fresh boot
+            if (bootSource === 'fresh') {
+                await this.tryBootCache();
             }
 
-            // Set up lazy queue flush handler
-            this.syncQueue.setFlushHandler((ops) => this.processQueuedOps(ops));
-
-            // Smart hydration: check cache first
-            const report = await this.smartHydrate();
+            // Build report
+            const notes = await this.goKittStore.listNotes();
+            const entities = await this.goKittStore.listEntities();
+            const report: HydrationReport = {
+                notes: notes.length,
+                folders: 0,
+                entities: entities.length,
+                edges: 0,
+                duration: Date.now() - startTime,
+                source: bootSource,
+            };
+            this._bootReport.set(report);
 
             this._status.set('ready');
             console.log('[GoSqliteBridge] ✅ Bridge initialized', report);
 
-            // If we had cache hit, do background sync verification
-            if (report.source === 'cache') {
-                this.backgroundSyncVerify().catch(err =>
-                    console.warn('[GoSqliteBridge] Background sync failed:', err)
-                );
-            }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this._lastError.set(message);
@@ -143,203 +136,124 @@ export class GoSqliteCozoBridge {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Smart Hydration (Cache-first)
-    // -------------------------------------------------------------------------
-
     /**
-     * Smart hydration strategy:
-     * 1. Check if GoSQLite has cached data (from IndexedDB via TinyGo)
-     * 2. If not: use BootCache data (pre-loaded from Dexie before Angular)
-     * 3. If nothing: hydrate from CozoDB (slowest, only on cold start)
-     * 4. Background sync verification runs after
+     * Try BootCache for cold start (pre-loaded from Dexie before Angular).
      */
-    private async smartHydrate(): Promise<HydrationReport> {
-        const startTime = Date.now();
-
-        // Strategy 1: Check if GoSQLite already has data
-        const cachedNotes = await this.goKittStore.listNotes();
-        const cachedEntities = await this.goKittStore.listEntities();
-
-        if (cachedNotes.length > 0 || cachedEntities.length > 0) {
-            this._cacheHit.set(true);
-            console.log(`[GoSqliteBridge] 🚀 GoSQLite cache hit: ${cachedNotes.length} notes, ${cachedEntities.length} entities`);
-            return {
-                notes: cachedNotes.length,
-                folders: 0,
-                entities: cachedEntities.length,
-                edges: 0,
-                duration: Date.now() - startTime,
-                source: 'cache'
-            };
-        }
-
-        // Strategy 2: Use BootCache (pre-loaded from Dexie before Angular)
-        const { getBootCache } = await import('../core/boot-cache');
-        const bootData = getBootCache();
-
-        if (bootData && (bootData.entities.length > 0 || bootData.edges.length > 0 || bootData.notes.length > 0)) {
-            console.log(`[GoSqliteBridge] 🚀 Using BootCache: ${bootData.entities.length} entities, ${bootData.edges.length} edges, ${bootData.notes.length} notes`);
-
-            // Hydrate GoSQLite from BootCache in parallel (don't await each one)
-            const notePromises = bootData.notes.map(n =>
-                this.goKittStore.upsertNote(GoKittStoreService.fromDexieNote(n))
-            );
-            const entityPromises = bootData.entities.map(e =>
-                this.goKittStore.upsertEntity(GoKittStoreService.fromDexieEntity(e))
-            );
-            const edgePromises = bootData.edges.map(e =>
-                this.goKittStore.upsertEdge(GoKittStoreService.fromDexieEdge(e))
-            );
-
-            await Promise.all([...notePromises, ...entityPromises, ...edgePromises]);
-
-            this._cacheHit.set(true);
-            return {
-                notes: bootData.notes.length,
-                folders: 0,
-                entities: bootData.entities.length,
-                edges: bootData.edges.length,
-                duration: Date.now() - startTime,
-                source: 'cache'
-            };
-        }
-
-        // Strategy 3: No cache - hydrate from Cozo (cold start only)
-        console.log('[GoSqliteBridge] Cache miss, hydrating from Cozo...');
-        return this.hydrateFromCozo();
-    }
-
-    /**
-     * Full hydration from CozoDB (cold start or cache miss)
-     */
-    async hydrateFromCozo(): Promise<HydrationReport> {
-        this._status.set('hydrating');
-        const startTime = Date.now();
-        const report: HydrationReport = {
-            notes: 0,
-            folders: 0,
-            entities: 0,
-            edges: 0,
-            duration: 0,
-            source: 'cozo'
-        };
-
-        console.log('[GoSqliteBridge] Hydrating from Cozo...');
-
+    private async tryBootCache(): Promise<void> {
         try {
-            // Hydrate notes
-            const notesResult = this.queryGraph<unknown[]>(`
-                ?[id, world_id, title, content, markdown_content, folder_id, entity_kind, 
-                  entity_subtype, is_entity, is_pinned, favorite, owner_id, created_at, 
-                  updated_at, narrative_id, order] := 
-                    *notes{id, world_id, title, content, markdown_content, folder_id, 
-                           entity_kind, entity_subtype, is_entity, is_pinned, favorite, 
-                           owner_id, created_at, updated_at, narrative_id, order}
-            `);
+            const { getBootCache } = await import('../core/boot-cache');
+            const bootData = getBootCache();
 
-            for (const row of notesResult) {
-                const note = CozoToDexie.note(row) as Note;
-                await this.goKittStore.upsertNote(GoKittStoreService.fromDexieNote(note));
-                report.notes++;
+            if (bootData && (bootData.entities.length > 0 || bootData.edges.length > 0 || bootData.notes.length > 0)) {
+                console.log(`[GoSqliteBridge] 🚀 BootCache: ${bootData.entities.length} entities, ${bootData.edges.length} edges, ${bootData.notes.length} notes, ${bootData.folders.length} folders`);
+
+                const notePromises = bootData.notes.map((n: Note) =>
+                    this.goKittStore.upsertNote(GoKittStoreService.fromDexieNote(n))
+                );
+                const entityPromises = bootData.entities.map((e: Entity) =>
+                    this.goKittStore.upsertEntity(GoKittStoreService.fromDexieEntity(e))
+                );
+                const edgePromises = bootData.edges.map((e: Edge) =>
+                    this.goKittStore.upsertEdge(GoKittStoreService.fromDexieEdge(e))
+                );
+                const folderPromises = bootData.folders.map((f: Folder) =>
+                    this.goKittStore.upsertFolder(GoKittStoreService.fromDexieFolder(f))
+                );
+
+                await Promise.all([...notePromises, ...entityPromises, ...edgePromises, ...folderPromises]);
+
+                // Seed CozoDB with folders from boot cache (folders are read from CozoDB)
+                this.seedCozoFolders(bootData.folders);
+
+                // First data loaded — sync to OPFS
+                this.opfsSync.markDirty();
             }
-
-            // Skip entities - GraphRegistry is the source of truth for entities
-            // This prevents entity accumulation bug
-            report.entities = 0;
-
-            // Hydrate edges
-            const edgesResult = this.queryGraph<unknown[]>(`
-                ?[id, source_id, target_id, edge_type, confidence] := 
-                    *entity_edge{id, source_id, target_id, edge_type, confidence}
-            `);
-
-            for (const row of edgesResult) {
-                const edge = CozoToDexie.edge(row) as Edge;
-                await this.goKittStore.upsertEdge(GoKittStoreService.fromDexieEdge(edge));
-                report.edges++;
-            }
-
-            report.duration = Date.now() - startTime;
-            console.log(`[GoSqliteBridge] ✅ Hydration complete in ${report.duration}ms`, report);
-            return report;
-
         } catch (err) {
-            console.error('[GoSqliteBridge] Hydration failed:', err);
-            throw err;
+            console.warn('[GoSqliteBridge] BootCache not available:', err);
         }
     }
 
     /**
-     * Background sync verification (runs after cache-based boot)
-     * Checks if CozoDB has data that GoSQLite is missing
-     * 
-     * Note: GoSQLite having MORE notes than Cozo is normal (we sync TO Cozo).
-     * Only warn if Cozo has MORE (means we missed data during cache boot).
+     * Best-effort bulk insert of folders into CozoDB.
+     * Folders are served from CozoDB since GoSqlite lacks the full schema.
      */
-    private async backgroundSyncVerify(): Promise<void> {
-        console.log('[GoSqliteBridge] 🔄 Background sync verification...');
-
-        // Get counts from both stores
-        const goNotes = await this.goKittStore.listNotes();
-        const cozoNotesResult = this.queryGraph<unknown[]>(`?[count(id)] := *notes{id}`);
-        const cozoNoteCount = cozoNotesResult.length > 0 ? (cozoNotesResult[0] as number[])[0] : 0;
-
-        if (cozoNoteCount > goNotes.length) {
-            // Cozo has more notes than GoSQLite - we're missing data!
-            console.warn(`[GoSqliteBridge] ⚠️ Missing data: GoSQLite=${goNotes.length}, Cozo=${cozoNoteCount}. Consider re-syncing.`);
-            // TODO: Pull missing notes from Cozo to GoSQLite
-        } else if (goNotes.length > cozoNoteCount) {
-            // GoSQLite has more - normal, will sync to Cozo on next write
-            console.log(`[GoSqliteBridge] ✅ Sync OK: GoSQLite=${goNotes.length} (Cozo=${cozoNoteCount}, will sync on write)`);
-        } else {
-            console.log('[GoSqliteBridge] ✅ Sync verified: counts match');
+    private seedCozoFolders(folders: Folder[]): void {
+        if (!cozoDb.isReady()) return;
+        for (const folder of folders) {
+            try {
+                const cozo = DexieToCozo.folder(folder);
+                cozoDb.runMutation(CozoQueries.upsertFolder(cozo));
+            } catch {
+                // Best-effort — skip failures
+            }
         }
     }
 
     // -------------------------------------------------------------------------
-    // Write Operations (GoSQLite → Queue → Cozo)
+    // Write Operations (GoSQLite → markDirty → OPFS, fire-and-forget → Dexie)
     // -------------------------------------------------------------------------
 
     /**
-     * Sync a note - writes to GoSQLite immediately, queues to Cozo
+     * Best-effort Dexie write for boot cache warming.
+     * Swallows all errors — this is non-critical cache warming.
+     */
+    private warmDexie<T>(table: { put: (obj: T) => Promise<unknown> }, obj: T): void {
+        try {
+            if (!(obj as any)?.id) return; // Key path requires id
+            table.put(obj).catch(() => { });
+        } catch {
+            // Swallow synchronous errors too
+        }
+    }
+
+    /**
+     * Sync a note to GoSQLite, mark dirty for OPFS, and warm Dexie boot cache.
      */
     async syncNote(note: Note): Promise<void> {
-        // Write to GoSQLite immediately
         await this.goKittStore.upsertNote(GoKittStoreService.fromDexieNote(note));
-
-        // Queue for Cozo sync
-        this.syncQueue.enqueueUpsert('notes', note.id, note);
+        this.opfsSync.markDirty();
+        this.warmDexie(db.notes, note);
     }
 
     /**
-     * Sync a folder - queues to Cozo (folders only in Cozo, not GoSQLite)
+     * Sync a folder to GoSQLite + CozoDB (folders are read from CozoDB).
+     * Also warms Dexie boot cache.
      */
     async syncFolder(folder: Folder): Promise<void> {
-        // Folders are NOT in GoSQLite currently (schema limitation)
-        // Just queue for Cozo sync
-        this.syncQueue.enqueueUpsert('folders', folder.id, folder);
+        const storeFolder = GoKittStoreService.fromDexieFolder(folder);
+        await this.goKittStore.upsertFolder(storeFolder);
+        this.opfsSync.markDirty();
+
+        // CozoDB is the read path for folders — sync there too
+        try {
+            const cozo = DexieToCozo.folder(folder);
+            cozoDb.runMutation(CozoQueries.upsertFolder(cozo));
+        } catch (err) {
+            console.warn('[GoSqliteBridge] CozoDB folder sync failed:', err);
+        }
+
+        this.warmDexie(db.folders, folder);
     }
 
     /**
-     * Sync an entity - DEPRECATED
-     * GraphRegistry is the single source of truth for entities.
-     * This method is kept for API compatibility.
+     * Sync an entity to GoSQLite.
+     * Note: GraphRegistry is the authoritative source for entities.
      */
     async syncEntity(entity: Entity): Promise<void> {
-        // Write to GoSQLite for local reactivity
         await this.goKittStore.upsertEntity(GoKittStoreService.fromDexieEntity(entity));
-
-        // IMPORTANT: Do NOT enqueue to Cozo - GraphRegistry is the source of truth
-        console.warn('[GoSqliteBridge] syncEntity called - use GraphRegistry.registerEntity instead');
+        this.opfsSync.markDirty();
+        this.cozoHydrator.invalidate();
+        this.warmDexie(db.entities, entity);
     }
 
     /**
-     * Sync an edge - writes to GoSQLite immediately, queues to Cozo
+     * Sync an edge to GoSQLite.
      */
     async syncEdge(edge: Edge): Promise<void> {
         await this.goKittStore.upsertEdge(GoKittStoreService.fromDexieEdge(edge));
-        this.syncQueue.enqueueUpsert('edges', edge.id, edge);
+        this.opfsSync.markDirty();
+        this.cozoHydrator.invalidate();
+        this.warmDexie(db.edges, edge);
     }
 
     // -------------------------------------------------------------------------
@@ -348,200 +262,139 @@ export class GoSqliteCozoBridge {
 
     async deleteNote(noteId: string): Promise<void> {
         await this.goKittStore.deleteNote(noteId);
-        this.syncQueue.enqueueDelete('notes', noteId);
+        this.opfsSync.markDirty();
+        // Fire-and-forget Dexie cleanup
+        db.notes.delete(noteId).catch(() => { });
     }
 
     async deleteFolder(folderId: string): Promise<void> {
-        // Folders only in Cozo
-        this.syncQueue.enqueueDelete('folders', folderId);
+        await this.goKittStore.deleteFolder(folderId);
+        this.opfsSync.markDirty();
+        // CozoDB folder cleanup
+        try {
+            cozoDb.runMutation(CozoQueries.deleteFolder(folderId));
+        } catch {
+            // Best-effort
+        }
+        // Fire-and-forget Dexie cleanup
+        db.folders.delete(folderId).catch(() => { });
     }
 
     async deleteEntity(entityId: string): Promise<void> {
         await this.goKittStore.deleteEntity(entityId);
-        this.syncQueue.enqueueDelete('entities', entityId);
+        this.opfsSync.markDirty();
+        this.cozoHydrator.invalidate();
+        // Fire-and-forget Dexie cleanup
+        db.entities.delete(entityId).catch(() => { });
     }
 
     async deleteEdge(edgeId: string): Promise<void> {
         await this.goKittStore.deleteEdge(edgeId);
-        this.syncQueue.enqueueDelete('edges', edgeId);
-    }
-
-    // -------------------------------------------------------------------------
-    // Queue Processing
-    // -------------------------------------------------------------------------
-
-    /**
-     * Process a batch of queued operations (flush to Cozo)
-     */
-    private async processQueuedOps(ops: SyncOp[]): Promise<void> {
-        this._syncInProgress.set(true);
-
-        try {
-            for (const op of ops) {
-                await this.processSingleOp(op);
-            }
-        } finally {
-            this._syncInProgress.set(false);
-        }
-    }
-
-    private async processSingleOp(op: SyncOp): Promise<void> {
-        try {
-            if (op.type === 'delete') {
-                switch (op.table) {
-                    case 'notes':
-                        cozoDb.runMutation(CozoQueries.deleteNote(op.id));
-                        break;
-                    case 'folders':
-                        cozoDb.runMutation(CozoQueries.deleteFolder(op.id));
-                        break;
-                    case 'entities':
-                        // Skip - GraphRegistry handles entity persistence
-                        break;
-                    case 'edges':
-                        cozoDb.runMutation(CozoQueries.deleteEdge(op.id));
-                        break;
-                }
-            } else {
-                // Upsert
-                switch (op.table) {
-                    case 'notes': {
-                        const cozoNote = DexieToCozo.note(op.data as Note);
-                        cozoDb.runMutation(CozoQueries.upsertNote(cozoNote));
-                        break;
-                    }
-                    case 'folders': {
-                        const cozoFolder = DexieToCozo.folder(op.data as Folder);
-                        cozoDb.runMutation(CozoQueries.upsertFolder(cozoFolder));
-                        break;
-                    }
-                    case 'entities':
-                        // Skip - GraphRegistry handles entity persistence directly
-                        break;
-                    case 'edges': {
-                        const cozoEdge = DexieToCozo.edge(op.data as Edge);
-                        cozoDb.runMutation(CozoQueries.upsertEdge(cozoEdge));
-                        break;
-                    }
-                }
-            }
-        } catch (err) {
-            console.error(`[GoSqliteBridge] Sync failed for ${op.table}/${op.id}:`, err);
-        }
-    }
-
-    /**
-     * Force flush any pending sync operations
-     */
-    async flushQueue(): Promise<void> {
-        await this.syncQueue.flush();
-    }
-
-    // -------------------------------------------------------------------------
-    // Direct Cozo Access (Bypass GoSQLite for graph queries)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Run a Datalog query directly on CozoDB.
-     * Use this for graph traversals, HNSW search, etc.
-     */
-    queryGraph<T = unknown[]>(
-        script: string,
-        params?: Record<string, unknown>
-    ): T[] {
-        try {
-            const result = cozoDb.runQuery(script, params || {}) as CozoQueryResult<T>;
-            if (!result.ok) {
-                console.error('[GoSqliteBridge] Query failed:', result.message || result.display);
-                return [];
-            }
-            return result.rows || [];
-        } catch (err) {
-            console.error('[GoSqliteBridge] Query error:', err);
-            return [];
-        }
-    }
-
-    /**
-     * Run a Datalog query and return a single row
-     */
-    queryOne<T = unknown[]>(
-        script: string,
-        params?: Record<string, unknown>
-    ): T | null {
-        const results = this.queryGraph<T>(script, params);
-        return results.length > 0 ? results[0] : null;
-    }
-
-    // -------------------------------------------------------------------------
-    // Utility Methods
-    // -------------------------------------------------------------------------
-
-    /**
-     * Get sync queue statistics
-     */
-    getQueueStats() {
-        return this.syncQueue.getStats();
-    }
-
-    /**
-     * Check if there are pending sync operations
-     */
-    hasPendingSync(): boolean {
-        return this.syncQueue.length > 0;
-    }
-
-    /**
-     * Cleanup when service is destroyed
-     */
-    destroy(): void {
-        this.syncQueue.destroy();
-        this._status.set('uninitialized');
+        this.opfsSync.markDirty();
+        this.cozoHydrator.invalidate();
+        // Fire-and-forget Dexie cleanup
+        db.edges.delete(edgeId).catch(() => { });
     }
 
     // -------------------------------------------------------------------------
     // Read Operations (from GoSQLite)
     // -------------------------------------------------------------------------
 
-    /**
-     * Get a note by ID from GoSQLite
-     */
     async getNote(id: string): Promise<StoreNote | null> {
         return this.goKittStore.getNote(id);
     }
 
-    /**
-     * Get all notes from GoSQLite
-     */
     async getAllNotes(): Promise<StoreNote[]> {
         return this.goKittStore.listNotes();
     }
 
-    /**
-     * Get notes by folder from GoSQLite
-     */
     async getNotesByFolder(folderId: string): Promise<StoreNote[]> {
         return this.goKittStore.listNotes(folderId);
     }
 
-    /**
-     * Get an entity by ID from GoSQLite
-     */
     async getEntity(id: string): Promise<StoreEntity | null> {
         return this.goKittStore.getEntity(id);
     }
 
-    /**
-     * Get all entities from GoSQLite
-     */
     async getAllEntities(): Promise<StoreEntity[]> {
         return this.goKittStore.listEntities();
     }
 
-    /**
-     * Get edges for an entity from GoSQLite
-     */
     async getEdgesForEntity(entityId: string): Promise<StoreEdge[]> {
         return this.goKittStore.listEdgesForEntity(entityId);
+    }
+
+    async getFolder(id: string): Promise<StoreFolder | null> {
+        return this.goKittStore.getFolder(id);
+    }
+
+    async getAllFolders(): Promise<StoreFolder[]> {
+        return this.goKittStore.listFolders();
+    }
+
+    // -------------------------------------------------------------------------
+    // Graph Queries (CozoDB — lazy hydration)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Run a Datalog query on CozoDB with auto-hydration.
+     * Use this for graph traversals, HNSW search, etc.
+     */
+    queryGraph<T = unknown[]>(
+        script: string,
+        params?: Record<string, unknown>
+    ): T[] {
+        // Synchronous path — assumes hydrated.
+        // For guaranteed hydration, use queryGraphAsync.
+        return this.cozoHydrator.querySync<T>(script, params);
+    }
+
+    /**
+     * Async Datalog query with guaranteed hydration.
+     */
+    async queryGraphAsync<T = unknown[]>(
+        script: string,
+        params?: Record<string, unknown>
+    ): Promise<T[]> {
+        return this.cozoHydrator.queryAsync<T>(script, params);
+    }
+
+    /**
+     * Run a Datalog query and return a single row.
+     */
+    queryOne<T = unknown[]>(
+        script: string,
+        params?: Record<string, unknown>
+    ): T | null {
+        return this.cozoHydrator.queryOne<T>(script, params);
+    }
+
+    // -------------------------------------------------------------------------
+    // Utility Methods
+    // -------------------------------------------------------------------------
+
+    /** Force sync to OPFS immediately */
+    async flushQueue(): Promise<void> {
+        await this.opfsSync.syncNow();
+    }
+
+    /** Check if there are pending sync operations */
+    hasPendingSync(): boolean {
+        return this.opfsSync.isDirty();
+    }
+
+    /** Get OPFS sync status */
+    getSyncStatus() {
+        return {
+            status: this.opfsSync.status(),
+            lastSync: this.opfsSync.lastSync(),
+            isDirty: this.opfsSync.isDirty(),
+            cozoStatus: this.cozoHydrator.status(),
+        };
+    }
+
+    /** Cleanup when service is destroyed */
+    destroy(): void {
+        this._status.set('uninitialized');
     }
 }

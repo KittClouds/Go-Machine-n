@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	_ "github.com/asg017/sqlite-vec-go-bindings/ncruces"
 	_ "github.com/ncruces/go-sqlite3/driver"
@@ -88,6 +89,80 @@ CREATE TABLE IF NOT EXISTS edges (
 
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+
+-- Folders (Document hierarchy)
+CREATE TABLE IF NOT EXISTS folders (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id TEXT,
+    world_id TEXT NOT NULL,
+    narrative_id TEXT,
+    folder_order REAL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
+CREATE INDEX IF NOT EXISTS idx_folders_world ON folders(world_id);
+
+-- =============================================================================
+-- Observational Memory Tables (Phase B)
+-- =============================================================================
+
+-- Threads: LLM conversation threads
+CREATE TABLE IF NOT EXISTS threads (
+    id TEXT PRIMARY KEY,
+    world_id TEXT,
+    narrative_id TEXT,
+    title TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_threads_world ON threads(world_id);
+CREATE INDEX IF NOT EXISTS idx_threads_narrative ON threads(narrative_id);
+
+-- ThreadMessages: Conversation history
+CREATE TABLE IF NOT EXISTS thread_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    narrative_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER,
+    is_streaming INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_messages_thread ON thread_messages(thread_id);
+CREATE INDEX IF NOT EXISTS idx_thread_messages_narrative ON thread_messages(narrative_id);
+
+-- Memories: Extracted observations
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    memory_type TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    source_role TEXT,
+    entity_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
+CREATE INDEX IF NOT EXISTS idx_memories_entity ON memories(entity_id);
+
+-- MemoryThreads: Many-to-many junction table
+CREATE TABLE IF NOT EXISTS memory_threads (
+    memory_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (memory_id, thread_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_threads_thread ON memory_threads(thread_id);
+CREATE INDEX IF NOT EXISTS idx_memory_threads_message ON memory_threads(message_id);
 `
 
 // NewSQLiteStore creates a new in-memory SQLite store.
@@ -231,6 +306,7 @@ func (s *SQLiteStore) GetNote(id string) (*Note, error) {
 	var note Note
 	var isEntity, isPinned, favorite, isCurrent int
 	var validTo sql.NullInt64
+	var markdownContent, folderID, entityKind, entitySubtype, ownerID, narrativeID, changeReason sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, version, world_id, title, content, markdown_content, folder_id,
@@ -238,11 +314,11 @@ func (s *SQLiteStore) GetNote(id string) (*Note, error) {
 			narrative_id, "order", created_at, updated_at, valid_from, valid_to, is_current, change_reason
 		FROM notes WHERE id = ? AND is_current = 1
 	`, id).Scan(
-		&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &note.MarkdownContent,
-		&note.FolderID, &note.EntityKind, &note.EntitySubtype,
+		&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &markdownContent,
+		&folderID, &entityKind, &entitySubtype,
 		&isEntity, &isPinned, &favorite,
-		&note.OwnerID, &note.NarrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
-		&note.ValidFrom, &validTo, &isCurrent, &note.ChangeReason,
+		&ownerID, &narrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
+		&note.ValidFrom, &validTo, &isCurrent, &changeReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -258,6 +334,27 @@ func (s *SQLiteStore) GetNote(id string) (*Note, error) {
 	note.IsCurrent = isCurrent != 0
 	if validTo.Valid {
 		note.ValidTo = &validTo.Int64
+	}
+	if markdownContent.Valid {
+		note.MarkdownContent = markdownContent.String
+	}
+	if folderID.Valid {
+		note.FolderID = folderID.String
+	}
+	if entityKind.Valid {
+		note.EntityKind = entityKind.String
+	}
+	if entitySubtype.Valid {
+		note.EntitySubtype = entitySubtype.String
+	}
+	if ownerID.Valid {
+		note.OwnerID = ownerID.String
+	}
+	if narrativeID.Valid {
+		note.NarrativeID = narrativeID.String
+	}
+	if changeReason.Valid {
+		note.ChangeReason = changeReason.String
 	}
 
 	return &note, nil
@@ -271,6 +368,7 @@ func (s *SQLiteStore) GetNoteVersion(id string, version int) (*Note, error) {
 	var note Note
 	var isEntity, isPinned, favorite, isCurrent int
 	var validTo sql.NullInt64
+	var markdownContent, folderID, entityKind, entitySubtype, ownerID, narrativeID, changeReason sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, version, world_id, title, content, markdown_content, folder_id,
@@ -278,11 +376,11 @@ func (s *SQLiteStore) GetNoteVersion(id string, version int) (*Note, error) {
 			narrative_id, "order", created_at, updated_at, valid_from, valid_to, is_current, change_reason
 		FROM notes WHERE id = ? AND version = ?
 	`, id, version).Scan(
-		&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &note.MarkdownContent,
-		&note.FolderID, &note.EntityKind, &note.EntitySubtype,
+		&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &markdownContent,
+		&folderID, &entityKind, &entitySubtype,
 		&isEntity, &isPinned, &favorite,
-		&note.OwnerID, &note.NarrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
-		&note.ValidFrom, &validTo, &isCurrent, &note.ChangeReason,
+		&ownerID, &narrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
+		&note.ValidFrom, &validTo, &isCurrent, &changeReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -298,6 +396,27 @@ func (s *SQLiteStore) GetNoteVersion(id string, version int) (*Note, error) {
 	note.IsCurrent = isCurrent != 0
 	if validTo.Valid {
 		note.ValidTo = &validTo.Int64
+	}
+	if markdownContent.Valid {
+		note.MarkdownContent = markdownContent.String
+	}
+	if folderID.Valid {
+		note.FolderID = folderID.String
+	}
+	if entityKind.Valid {
+		note.EntityKind = entityKind.String
+	}
+	if entitySubtype.Valid {
+		note.EntitySubtype = entitySubtype.String
+	}
+	if ownerID.Valid {
+		note.OwnerID = ownerID.String
+	}
+	if narrativeID.Valid {
+		note.NarrativeID = narrativeID.String
+	}
+	if changeReason.Valid {
+		note.ChangeReason = changeReason.String
 	}
 
 	return &note, nil
@@ -324,13 +443,14 @@ func (s *SQLiteStore) ListNoteVersions(id string) ([]*Note, error) {
 		var note Note
 		var isEntity, isPinned, favorite, isCurrent int
 		var validTo sql.NullInt64
+		var markdownContent, folderID, entityKind, entitySubtype, ownerID, narrativeID, changeReason sql.NullString
 
 		if err := rows.Scan(
-			&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &note.MarkdownContent,
-			&note.FolderID, &note.EntityKind, &note.EntitySubtype,
+			&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &markdownContent,
+			&folderID, &entityKind, &entitySubtype,
 			&isEntity, &isPinned, &favorite,
-			&note.OwnerID, &note.NarrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
-			&note.ValidFrom, &validTo, &isCurrent, &note.ChangeReason,
+			&ownerID, &narrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
+			&note.ValidFrom, &validTo, &isCurrent, &changeReason,
 		); err != nil {
 			return nil, err
 		}
@@ -341,6 +461,27 @@ func (s *SQLiteStore) ListNoteVersions(id string) ([]*Note, error) {
 		note.IsCurrent = isCurrent != 0
 		if validTo.Valid {
 			note.ValidTo = &validTo.Int64
+		}
+		if markdownContent.Valid {
+			note.MarkdownContent = markdownContent.String
+		}
+		if folderID.Valid {
+			note.FolderID = folderID.String
+		}
+		if entityKind.Valid {
+			note.EntityKind = entityKind.String
+		}
+		if entitySubtype.Valid {
+			note.EntitySubtype = entitySubtype.String
+		}
+		if ownerID.Valid {
+			note.OwnerID = ownerID.String
+		}
+		if narrativeID.Valid {
+			note.NarrativeID = narrativeID.String
+		}
+		if changeReason.Valid {
+			note.ChangeReason = changeReason.String
 		}
 		notes = append(notes, &note)
 	}
@@ -356,22 +497,23 @@ func (s *SQLiteStore) GetNoteAtTime(id string, timestamp int64) (*Note, error) {
 	var note Note
 	var isEntity, isPinned, favorite, isCurrent int
 	var validTo sql.NullInt64
+	var markdownContent, folderID, entityKind, entitySubtype, ownerID, narrativeID, changeReason sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, version, world_id, title, content, markdown_content, folder_id,
 			entity_kind, entity_subtype, is_entity, is_pinned, favorite, owner_id,
 			narrative_id, "order", created_at, updated_at, valid_from, valid_to, is_current, change_reason
-		FROM notes 
-		WHERE id = ? 
-		  AND valid_from <= ? 
+		FROM notes
+		WHERE id = ?
+		  AND valid_from <= ?
 		  AND (valid_to IS NULL OR valid_to > ?)
 		ORDER BY version DESC LIMIT 1
 	`, id, timestamp, timestamp).Scan(
-		&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &note.MarkdownContent,
-		&note.FolderID, &note.EntityKind, &note.EntitySubtype,
+		&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &markdownContent,
+		&folderID, &entityKind, &entitySubtype,
 		&isEntity, &isPinned, &favorite,
-		&note.OwnerID, &note.NarrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
-		&note.ValidFrom, &validTo, &isCurrent, &note.ChangeReason,
+		&ownerID, &narrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
+		&note.ValidFrom, &validTo, &isCurrent, &changeReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -388,6 +530,27 @@ func (s *SQLiteStore) GetNoteAtTime(id string, timestamp int64) (*Note, error) {
 	if validTo.Valid {
 		note.ValidTo = &validTo.Int64
 	}
+	if markdownContent.Valid {
+		note.MarkdownContent = markdownContent.String
+	}
+	if folderID.Valid {
+		note.FolderID = folderID.String
+	}
+	if entityKind.Valid {
+		note.EntityKind = entityKind.String
+	}
+	if entitySubtype.Valid {
+		note.EntitySubtype = entitySubtype.String
+	}
+	if ownerID.Valid {
+		note.OwnerID = ownerID.String
+	}
+	if narrativeID.Valid {
+		note.NarrativeID = narrativeID.String
+	}
+	if changeReason.Valid {
+		note.ChangeReason = changeReason.String
+	}
 
 	return &note, nil
 }
@@ -401,6 +564,7 @@ func (s *SQLiteStore) RestoreNoteVersion(id string, version int) error {
 	var oldNote Note
 	var isEntity, isPinned, favorite int
 	var validTo sql.NullInt64
+	var markdownContent, folderID, entityKind, entitySubtype, ownerID, narrativeID sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT id, version, world_id, title, content, markdown_content, folder_id,
@@ -408,10 +572,10 @@ func (s *SQLiteStore) RestoreNoteVersion(id string, version int) error {
 			narrative_id, "order", created_at, updated_at, valid_from, valid_to
 		FROM notes WHERE id = ? AND version = ?
 	`, id, version).Scan(
-		&oldNote.ID, &oldNote.Version, &oldNote.WorldID, &oldNote.Title, &oldNote.Content, &oldNote.MarkdownContent,
-		&oldNote.FolderID, &oldNote.EntityKind, &oldNote.EntitySubtype,
+		&oldNote.ID, &oldNote.Version, &oldNote.WorldID, &oldNote.Title, &oldNote.Content, &markdownContent,
+		&folderID, &entityKind, &entitySubtype,
 		&isEntity, &isPinned, &favorite,
-		&oldNote.OwnerID, &oldNote.NarrativeID, &oldNote.Order, &oldNote.CreatedAt, &oldNote.UpdatedAt,
+		&ownerID, &narrativeID, &oldNote.Order, &oldNote.CreatedAt, &oldNote.UpdatedAt,
 		&oldNote.ValidFrom, &validTo,
 	)
 	if err != nil {
@@ -421,6 +585,24 @@ func (s *SQLiteStore) RestoreNoteVersion(id string, version int) error {
 	oldNote.IsEntity = isEntity != 0
 	oldNote.IsPinned = isPinned != 0
 	oldNote.Favorite = favorite != 0
+	if markdownContent.Valid {
+		oldNote.MarkdownContent = markdownContent.String
+	}
+	if folderID.Valid {
+		oldNote.FolderID = folderID.String
+	}
+	if entityKind.Valid {
+		oldNote.EntityKind = entityKind.String
+	}
+	if entitySubtype.Valid {
+		oldNote.EntitySubtype = entitySubtype.String
+	}
+	if ownerID.Valid {
+		oldNote.OwnerID = ownerID.String
+	}
+	if narrativeID.Valid {
+		oldNote.NarrativeID = narrativeID.String
+	}
 
 	// Get current max version
 	var maxVersion int
@@ -504,13 +686,14 @@ func (s *SQLiteStore) ListNotes(folderID string) ([]*Note, error) {
 		var note Note
 		var isEntity, isPinned, favorite, isCurrent int
 		var validTo sql.NullInt64
+		var markdownContent, folderID, entityKind, entitySubtype, ownerID, narrativeID, changeReason sql.NullString
 
 		if err := rows.Scan(
-			&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &note.MarkdownContent,
-			&note.FolderID, &note.EntityKind, &note.EntitySubtype,
+			&note.ID, &note.Version, &note.WorldID, &note.Title, &note.Content, &markdownContent,
+			&folderID, &entityKind, &entitySubtype,
 			&isEntity, &isPinned, &favorite,
-			&note.OwnerID, &note.NarrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
-			&note.ValidFrom, &validTo, &isCurrent, &note.ChangeReason,
+			&ownerID, &narrativeID, &note.Order, &note.CreatedAt, &note.UpdatedAt,
+			&note.ValidFrom, &validTo, &isCurrent, &changeReason,
 		); err != nil {
 			return nil, err
 		}
@@ -521,6 +704,27 @@ func (s *SQLiteStore) ListNotes(folderID string) ([]*Note, error) {
 		note.IsCurrent = isCurrent != 0
 		if validTo.Valid {
 			note.ValidTo = &validTo.Int64
+		}
+		if markdownContent.Valid {
+			note.MarkdownContent = markdownContent.String
+		}
+		if folderID.Valid {
+			note.FolderID = folderID.String
+		}
+		if entityKind.Valid {
+			note.EntityKind = entityKind.String
+		}
+		if entitySubtype.Valid {
+			note.EntitySubtype = entitySubtype.String
+		}
+		if ownerID.Valid {
+			note.OwnerID = ownerID.String
+		}
+		if narrativeID.Valid {
+			note.NarrativeID = narrativeID.String
+		}
+		if changeReason.Valid {
+			note.ChangeReason = changeReason.String
 		}
 		notes = append(notes, &note)
 	}
@@ -835,6 +1039,676 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// =============================================================================
+// Folder CRUD
+// =============================================================================
+
+// UpsertFolder inserts or updates a folder.
+func (s *SQLiteStore) UpsertFolder(folder *Folder) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`
+		INSERT INTO folders (id, name, parent_id, world_id, narrative_id, folder_order, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			parent_id = excluded.parent_id,
+			world_id = excluded.world_id,
+			narrative_id = excluded.narrative_id,
+			folder_order = excluded.folder_order,
+			updated_at = excluded.updated_at
+	`, folder.ID, folder.Name, folder.ParentID, folder.WorldID,
+		folder.NarrativeID, folder.FolderOrder, folder.CreatedAt, folder.UpdatedAt)
+
+	return err
+}
+
+// GetFolder retrieves a folder by ID.
+func (s *SQLiteStore) GetFolder(id string) (*Folder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var folder Folder
+	err := s.db.QueryRow(`
+		SELECT id, name, parent_id, world_id, narrative_id, folder_order, created_at, updated_at
+		FROM folders WHERE id = ?
+	`, id).Scan(
+		&folder.ID, &folder.Name, &folder.ParentID, &folder.WorldID,
+		&folder.NarrativeID, &folder.FolderOrder, &folder.CreatedAt, &folder.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &folder, nil
+}
+
+// DeleteFolder removes a folder by ID.
+func (s *SQLiteStore) DeleteFolder(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec("DELETE FROM folders WHERE id = ?", id)
+	return err
+}
+
+// ListFolders returns folders, optionally filtered by parent.
+func (s *SQLiteStore) ListFolders(parentID string) ([]*Folder, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var rows *sql.Rows
+	var err error
+
+	if parentID != "" {
+		rows, err = s.db.Query(`
+			SELECT id, name, parent_id, world_id, narrative_id, folder_order, created_at, updated_at
+			FROM folders WHERE parent_id = ? ORDER BY folder_order
+		`, parentID)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT id, name, parent_id, world_id, narrative_id, folder_order, created_at, updated_at
+			FROM folders ORDER BY folder_order
+		`)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var folders []*Folder
+	for rows.Next() {
+		var folder Folder
+		if err := rows.Scan(
+			&folder.ID, &folder.Name, &folder.ParentID, &folder.WorldID,
+			&folder.NarrativeID, &folder.FolderOrder, &folder.CreatedAt, &folder.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		folders = append(folders, &folder)
+	}
+
+	return folders, rows.Err()
+}
+
+// =============================================================================
+// Thread CRUD (Observational Memory)
+// =============================================================================
+
+// CreateThread creates a new conversation thread.
+func (s *SQLiteStore) CreateThread(thread *Thread) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`
+		INSERT INTO threads (id, world_id, narrative_id, title, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, thread.ID, thread.WorldID, thread.NarrativeID, thread.Title, thread.CreatedAt, thread.UpdatedAt)
+
+	return err
+}
+
+// GetThread retrieves a thread by ID.
+func (s *SQLiteStore) GetThread(id string) (*Thread, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var thread Thread
+	err := s.db.QueryRow(`
+		SELECT id, world_id, narrative_id, title, created_at, updated_at
+		FROM threads WHERE id = ?
+	`, id).Scan(&thread.ID, &thread.WorldID, &thread.NarrativeID, &thread.Title,
+		&thread.CreatedAt, &thread.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &thread, nil
+}
+
+// DeleteThread removes a thread and all its messages.
+func (s *SQLiteStore) DeleteThread(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Delete memory associations first
+	if _, err := s.db.Exec("DELETE FROM memory_threads WHERE thread_id = ?", id); err != nil {
+		return err
+	}
+
+	// Delete messages
+	if _, err := s.db.Exec("DELETE FROM thread_messages WHERE thread_id = ?", id); err != nil {
+		return err
+	}
+
+	// Delete thread
+	_, err := s.db.Exec("DELETE FROM threads WHERE id = ?", id)
+	return err
+}
+
+// ListThreads returns all threads, optionally filtered by worldID.
+func (s *SQLiteStore) ListThreads(worldID string) ([]*Thread, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var rows *sql.Rows
+	var err error
+
+	if worldID != "" {
+		rows, err = s.db.Query(`
+			SELECT id, world_id, narrative_id, title, created_at, updated_at
+			FROM threads WHERE world_id = ? ORDER BY updated_at DESC
+		`, worldID)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT id, world_id, narrative_id, title, created_at, updated_at
+			FROM threads ORDER BY updated_at DESC
+		`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var threads []*Thread
+	for rows.Next() {
+		var t Thread
+		if err := rows.Scan(&t.ID, &t.WorldID, &t.NarrativeID, &t.Title,
+			&t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		threads = append(threads, &t)
+	}
+
+	return threads, rows.Err()
+}
+
+// =============================================================================
+// ThreadMessage CRUD
+// =============================================================================
+
+// AddMessage adds a message to a thread.
+func (s *SQLiteStore) AddMessage(msg *ThreadMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`
+		INSERT INTO thread_messages (id, thread_id, role, content, narrative_id, created_at, updated_at, is_streaming)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, msg.ID, msg.ThreadID, msg.Role, msg.Content, msg.NarrativeID, msg.CreatedAt, msg.UpdatedAt, boolToInt(msg.IsStreaming))
+
+	if err != nil {
+		return err
+	}
+
+	// Update thread's updated_at timestamp
+	_, err = s.db.Exec("UPDATE threads SET updated_at = ? WHERE id = ?", msg.CreatedAt, msg.ThreadID)
+	return err
+}
+
+// GetThreadMessages returns all messages for a thread in chronological order.
+func (s *SQLiteStore) GetThreadMessages(threadID string) ([]*ThreadMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT id, thread_id, role, content, narrative_id, created_at, updated_at, is_streaming
+		FROM thread_messages WHERE thread_id = ? ORDER BY created_at ASC
+	`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*ThreadMessage
+	for rows.Next() {
+		var m ThreadMessage
+		var isStreaming int
+		var updatedAt sql.NullInt64
+		if err := rows.Scan(&m.ID, &m.ThreadID, &m.Role, &m.Content, &m.NarrativeID,
+			&m.CreatedAt, &updatedAt, &isStreaming); err != nil {
+			return nil, err
+		}
+		m.IsStreaming = isStreaming != 0
+		if updatedAt.Valid {
+			m.UpdatedAt = updatedAt.Int64
+		}
+		messages = append(messages, &m)
+	}
+
+	return messages, rows.Err()
+}
+
+// DeleteThreadMessages removes all messages from a thread.
+func (s *SQLiteStore) DeleteThreadMessages(threadID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec("DELETE FROM thread_messages WHERE thread_id = ?", threadID)
+	return err
+}
+
+// GetMessage retrieves a single message by ID.
+func (s *SQLiteStore) GetMessage(id string) (*ThreadMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var m ThreadMessage
+	var isStreaming int
+	var updatedAt sql.NullInt64
+
+	err := s.db.QueryRow(`
+		SELECT id, thread_id, role, content, narrative_id, created_at, updated_at, is_streaming
+		FROM thread_messages WHERE id = ?
+	`, id).Scan(&m.ID, &m.ThreadID, &m.Role, &m.Content, &m.NarrativeID,
+		&m.CreatedAt, &updatedAt, &isStreaming)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	m.IsStreaming = isStreaming != 0
+	if updatedAt.Valid {
+		m.UpdatedAt = updatedAt.Int64
+	}
+
+	return &m, nil
+}
+
+// UpdateMessage updates an existing message.
+func (s *SQLiteStore) UpdateMessage(msg *ThreadMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`
+		UPDATE thread_messages
+		SET content = ?, updated_at = ?, is_streaming = ?
+		WHERE id = ?
+	`, msg.Content, msg.UpdatedAt, boolToInt(msg.IsStreaming), msg.ID)
+
+	return err
+}
+
+// AppendMessageContent appends content to a message (for streaming).
+func (s *SQLiteStore) AppendMessageContent(messageID string, chunk string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`
+		UPDATE thread_messages
+		SET content = content || ?, updated_at = ?
+		WHERE id = ?
+	`, chunk, time.Now().UnixMilli(), messageID)
+
+	return err
+}
+
+// =============================================================================
+// Memory CRUD
+// =============================================================================
+
+// CreateMemory creates a new memory and links it to a thread.
+func (s *SQLiteStore) CreateMemory(memory *Memory, threadID, messageID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Insert memory
+	_, err := s.db.Exec(`
+		INSERT INTO memories (id, content, memory_type, confidence, source_role, entity_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, memory.ID, memory.Content, string(memory.MemoryType), memory.Confidence,
+		memory.SourceRole, memory.EntityID, memory.CreatedAt, memory.UpdatedAt)
+	if err != nil {
+		return err
+	}
+
+	// Create thread association
+	_, err = s.db.Exec(`
+		INSERT INTO memory_threads (memory_id, thread_id, message_id, created_at)
+		VALUES (?, ?, ?, ?)
+	`, memory.ID, threadID, messageID, memory.CreatedAt)
+
+	return err
+}
+
+// GetMemory retrieves a memory by ID.
+func (s *SQLiteStore) GetMemory(id string) (*Memory, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var m Memory
+	var memoryType string
+	var entityID sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, content, memory_type, confidence, source_role, entity_id, created_at, updated_at
+		FROM memories WHERE id = ?
+	`, id).Scan(&m.ID, &m.Content, &memoryType, &m.Confidence, &m.SourceRole,
+		&entityID, &m.CreatedAt, &m.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	m.MemoryType = MemoryType(memoryType)
+	if entityID.Valid {
+		m.EntityID = entityID.String
+	}
+
+	return &m, nil
+}
+
+// DeleteMemory removes a memory and its thread associations.
+func (s *SQLiteStore) DeleteMemory(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Delete thread associations first
+	if _, err := s.db.Exec("DELETE FROM memory_threads WHERE memory_id = ?", id); err != nil {
+		return err
+	}
+
+	// Delete memory
+	_, err := s.db.Exec("DELETE FROM memories WHERE id = ?", id)
+	return err
+}
+
+// GetMemoriesForThread returns all memories associated with a thread.
+func (s *SQLiteStore) GetMemoriesForThread(threadID string) ([]*Memory, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT m.id, m.content, m.memory_type, m.confidence, m.source_role, m.entity_id, m.created_at, m.updated_at
+		FROM memories m
+		INNER JOIN memory_threads mt ON m.id = mt.memory_id
+		WHERE mt.thread_id = ?
+		ORDER BY m.created_at DESC
+	`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		var m Memory
+		var memoryType string
+		var entityID sql.NullString
+
+		if err := rows.Scan(&m.ID, &m.Content, &memoryType, &m.Confidence, &m.SourceRole,
+			&entityID, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+
+		m.MemoryType = MemoryType(memoryType)
+		if entityID.Valid {
+			m.EntityID = entityID.String
+		}
+		memories = append(memories, &m)
+	}
+
+	return memories, rows.Err()
+}
+
+// ListMemoriesByType returns all memories of a specific type.
+func (s *SQLiteStore) ListMemoriesByType(memoryType MemoryType) ([]*Memory, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT id, content, memory_type, confidence, source_role, entity_id, created_at, updated_at
+		FROM memories WHERE memory_type = ?
+		ORDER BY created_at DESC
+	`, string(memoryType))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		var m Memory
+		var mt string
+		var entityID sql.NullString
+
+		if err := rows.Scan(&m.ID, &m.Content, &mt, &m.Confidence, &m.SourceRole,
+			&entityID, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+
+		m.MemoryType = MemoryType(mt)
+		if entityID.Valid {
+			m.EntityID = entityID.String
+		}
+		memories = append(memories, &m)
+	}
+
+	return memories, rows.Err()
+}
+
+// Export serializes all database tables to JSON bytes.
+// This is a portable export that doesn't depend on sqlite3 serialization APIs.
+func (s *SQLiteStore) Export() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	type ExportData struct {
+		Notes    []*Note   `json:"notes"`
+		Entities []*Entity `json:"entities"`
+		Edges    []*Edge   `json:"edges"`
+		Folders  []*Folder `json:"folders"`
+	}
+
+	var data ExportData
+
+	// Export notes - only current versions
+	noteRows, err := s.db.Query(`
+		SELECT id, version, world_id, title, content, markdown_content, folder_id, entity_kind,
+			   entity_subtype, is_entity, is_pinned, favorite, owner_id, created_at, updated_at,
+			   narrative_id, "order"
+		FROM notes WHERE is_current = 1
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("export notes: %w", err)
+	}
+	defer noteRows.Close()
+	for noteRows.Next() {
+		var n Note
+		var isEntity, isPinned, favorite int
+		if err := noteRows.Scan(
+			&n.ID, &n.Version, &n.WorldID, &n.Title, &n.Content, &n.MarkdownContent, &n.FolderID,
+			&n.EntityKind, &n.EntitySubtype, &isEntity, &isPinned, &favorite,
+			&n.OwnerID, &n.CreatedAt, &n.UpdatedAt, &n.NarrativeID, &n.Order,
+		); err != nil {
+			return nil, fmt.Errorf("scan note: %w", err)
+		}
+		n.IsEntity = isEntity == 1
+		n.IsPinned = isPinned == 1
+		n.Favorite = favorite == 1
+		n.IsCurrent = true
+		n.ValidFrom = n.CreatedAt
+		data.Notes = append(data.Notes, &n)
+	}
+
+	// Export entities
+	entityRows, err := s.db.Query(`
+		SELECT id, label, kind, subtype, aliases, first_note, total_mentions,
+			   created_at, updated_at, created_by, narrative_id
+		FROM entities
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("export entities: %w", err)
+	}
+	defer entityRows.Close()
+	for entityRows.Next() {
+		var e Entity
+		var aliasesJSON string
+		if err := entityRows.Scan(
+			&e.ID, &e.Label, &e.Kind, &e.Subtype, &aliasesJSON,
+			&e.FirstNote, &e.TotalMentions, &e.CreatedAt, &e.UpdatedAt,
+			&e.CreatedBy, &e.NarrativeID,
+		); err != nil {
+			return nil, fmt.Errorf("scan entity: %w", err)
+		}
+		json.Unmarshal([]byte(aliasesJSON), &e.Aliases)
+		data.Entities = append(data.Entities, &e)
+	}
+
+	// Export edges
+	edgeRows, err := s.db.Query(`
+		SELECT id, source_id, target_id, rel_type, confidence, bidirectional, source_note, created_at
+		FROM edges
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("export edges: %w", err)
+	}
+	defer edgeRows.Close()
+	for edgeRows.Next() {
+		var e Edge
+		var bidir int
+		if err := edgeRows.Scan(
+			&e.ID, &e.SourceID, &e.TargetID, &e.RelType, &e.Confidence,
+			&bidir, &e.SourceNote, &e.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan edge: %w", err)
+		}
+		e.Bidirectional = bidir == 1
+		data.Edges = append(data.Edges, &e)
+	}
+
+	// Export folders
+	folderRows, err := s.db.Query(`
+		SELECT id, name, parent_id, world_id, narrative_id, folder_order, created_at, updated_at
+		FROM folders
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("export folders: %w", err)
+	}
+	defer folderRows.Close()
+	for folderRows.Next() {
+		var f Folder
+		if err := folderRows.Scan(
+			&f.ID, &f.Name, &f.ParentID, &f.WorldID, &f.NarrativeID,
+			&f.FolderOrder, &f.CreatedAt, &f.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan folder: %w", err)
+		}
+		data.Folders = append(data.Folders, &f)
+	}
+
+	return json.Marshal(data)
+}
+
+// Import restores the database state from an exported JSON byte slice.
+// Clears all existing data and re-inserts from the export.
+func (s *SQLiteStore) Import(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(data) == 0 {
+		return nil
+	}
+
+	type ExportData struct {
+		Notes    []*Note   `json:"notes"`
+		Entities []*Entity `json:"entities"`
+		Edges    []*Edge   `json:"edges"`
+		Folders  []*Folder `json:"folders"`
+	}
+
+	var importData ExportData
+	if err := json.Unmarshal(data, &importData); err != nil {
+		return fmt.Errorf("import unmarshal: %w", err)
+	}
+
+	// Clear all tables
+	for _, table := range []string{"edges", "entities", "folders", "notes"} {
+		if _, err := s.db.Exec("DELETE FROM " + table); err != nil {
+			return fmt.Errorf("clear %s: %w", table, err)
+		}
+	}
+
+	// Re-insert notes
+	for _, n := range importData.Notes {
+		version := n.Version
+		if version == 0 {
+			version = 1
+		}
+		validFrom := n.ValidFrom
+		if validFrom == 0 {
+			validFrom = n.CreatedAt
+		}
+		_, err := s.db.Exec(`
+			INSERT INTO notes (id, version, world_id, title, content, markdown_content, folder_id, entity_kind,
+				entity_subtype, is_entity, is_pinned, favorite, owner_id, created_at, updated_at,
+				narrative_id, "order", valid_from, is_current)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		`, n.ID, version, n.WorldID, n.Title, n.Content, n.MarkdownContent, n.FolderID,
+			n.EntityKind, n.EntitySubtype, boolToInt(n.IsEntity), boolToInt(n.IsPinned),
+			boolToInt(n.Favorite), n.OwnerID, n.CreatedAt, n.UpdatedAt, n.NarrativeID, n.Order, validFrom)
+		if err != nil {
+			return fmt.Errorf("import note %s: %w", n.ID, err)
+		}
+	}
+
+	// Re-insert entities
+	for _, e := range importData.Entities {
+		aliasesJSON, _ := json.Marshal(e.Aliases)
+		_, err := s.db.Exec(`
+			INSERT INTO entities (id, label, kind, subtype, aliases, first_note, total_mentions,
+				created_at, updated_at, created_by, narrative_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, e.ID, e.Label, e.Kind, e.Subtype, string(aliasesJSON),
+			e.FirstNote, e.TotalMentions, e.CreatedAt, e.UpdatedAt, e.CreatedBy, e.NarrativeID)
+		if err != nil {
+			return fmt.Errorf("import entity %s: %w", e.ID, err)
+		}
+	}
+
+	// Re-insert edges
+	for _, e := range importData.Edges {
+		_, err := s.db.Exec(`
+			INSERT INTO edges (id, source_id, target_id, rel_type, confidence, bidirectional, source_note, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, e.ID, e.SourceID, e.TargetID, e.RelType, e.Confidence,
+			boolToInt(e.Bidirectional), e.SourceNote, e.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("import edge %s: %w", e.ID, err)
+		}
+	}
+
+	// Re-insert folders
+	for _, f := range importData.Folders {
+		_, err := s.db.Exec(`
+			INSERT INTO folders (id, name, parent_id, world_id, narrative_id, folder_order, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, f.ID, f.Name, f.ParentID, f.WorldID, f.NarrativeID,
+			f.FolderOrder, f.CreatedAt, f.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("import folder %s: %w", f.ID, err)
+		}
+	}
+
+	return nil
 }
 
 // Compile-time interface check

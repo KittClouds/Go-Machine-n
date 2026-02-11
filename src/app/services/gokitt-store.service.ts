@@ -73,6 +73,21 @@ export interface StoreEdge {
     createdAt: number;
 }
 
+/**
+ * Folder represents a folder in the document hierarchy.
+ * Maps 1:1 to Go store.Folder struct.
+ */
+export interface StoreFolder {
+    id: string;
+    name: string;
+    parentId?: string;
+    worldId: string;
+    narrativeId?: string;
+    folderOrder: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
 // =============================================================================
 // Worker Message Types (added to extend GoKitt API)
 // =============================================================================
@@ -92,7 +107,15 @@ type StoreWorkerMessage =
     | { type: 'STORE_UPSERT_EDGE'; payload: { edgeJSON: string }; id: number }
     | { type: 'STORE_GET_EDGE'; payload: { id: string }; id: number }
     | { type: 'STORE_DELETE_EDGE'; payload: { id: string }; id: number }
-    | { type: 'STORE_LIST_EDGES'; payload: { entityId: string }; id: number };
+    | { type: 'STORE_LIST_EDGES'; payload: { entityId: string }; id: number }
+    // Export/Import (OPFS Sync)
+    | { type: 'STORE_EXPORT'; id: number }
+    | { type: 'STORE_IMPORT'; payload: { data: ArrayBuffer }; id: number }
+    // Folder CRUD
+    | { type: 'STORE_UPSERT_FOLDER'; payload: { folderJSON: string }; id: number }
+    | { type: 'STORE_GET_FOLDER'; payload: { id: string }; id: number }
+    | { type: 'STORE_DELETE_FOLDER'; payload: { id: string }; id: number }
+    | { type: 'STORE_LIST_FOLDERS'; payload: { parentId?: string }; id: number };
 
 // =============================================================================
 // Service
@@ -336,6 +359,101 @@ export class GoKittStoreService {
         return result || [];
     }
 
+    /**
+     * List ALL edges in the store (no filter).
+     * Used by CozoHydrator for full graph hydration.
+     */
+    async listAllEdges(): Promise<StoreEdge[]> {
+        await this.ensureInitialized();
+        // Use empty string to get all edges
+        const result = await this.sendRequest<StoreEdge[]>('STORE_LIST_EDGES', { entityId: '' });
+        return result || [];
+    }
+
+    // =========================================================================
+    // Folder CRUD
+    // =========================================================================
+
+    /**
+     * Insert or update a folder.
+     */
+    async upsertFolder(folder: StoreFolder): Promise<void> {
+        await this.ensureInitialized();
+        const folderJSON = JSON.stringify(folder);
+        const result = await this.sendRequest<{ success: boolean; error?: string }>('STORE_UPSERT_FOLDER', { folderJSON });
+        if (!result.success) {
+            throw new Error(`Failed to upsert folder: ${result.error}`);
+        }
+    }
+
+    /**
+     * Get a folder by ID.
+     */
+    async getFolder(id: string): Promise<StoreFolder | null> {
+        await this.ensureInitialized();
+        return this.sendRequest<StoreFolder | null>('STORE_GET_FOLDER', { id });
+    }
+
+    /**
+     * Delete a folder by ID.
+     */
+    async deleteFolder(id: string): Promise<void> {
+        await this.ensureInitialized();
+        const result = await this.sendRequest<{ success: boolean; error?: string }>('STORE_DELETE_FOLDER', { id });
+        if (!result.success) {
+            throw new Error(`Failed to delete folder: ${result.error}`);
+        }
+    }
+
+    /**
+     * List folders, optionally filtered by parent.
+     */
+    async listFolders(parentId?: string): Promise<StoreFolder[]> {
+        await this.ensureInitialized();
+        const result = await this.sendRequest<StoreFolder[]>('STORE_LIST_FOLDERS', { parentId });
+        return result || [];
+    }
+
+    // =========================================================================
+    // Export / Import (OPFS Sync)
+    // =========================================================================
+
+    /**
+     * Export the entire SQLite database as a binary blob.
+     * Returns raw bytes for OPFS persistence.
+     */
+    async exportDatabase(): Promise<Uint8Array> {
+        await this.ensureInitialized();
+        const result = await this.sendRequest<{ data: ArrayBuffer; size: number } | { success: false; error: string }>('STORE_EXPORT', {});
+        if ('error' in result) {
+            throw new Error(`Export failed: ${result.error}`);
+        }
+        return new Uint8Array(result.data);
+    }
+
+    /**
+     * Import a SQLite database from binary blob.
+     * Replaces all existing data.
+     */
+    async importDatabase(data: Uint8Array): Promise<void> {
+        await this.ensureInitialized();
+        // Transfer the buffer for zero-copy
+        const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+        const result = await this.sendRequest<{ success: boolean; error?: string }>('STORE_IMPORT', { data: buffer });
+        if (!result.success) {
+            throw new Error(`Import failed: ${result.error}`);
+        }
+    }
+
+    /**
+     * Count notes in the store (without fetching all data).
+     */
+    async countNotes(): Promise<number> {
+        await this.ensureInitialized();
+        const notes = await this.listNotes();
+        return notes.length;
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -413,6 +531,22 @@ export class GoKittStoreService {
             bidirectional: dexieEdge.bidirectional || false,
             sourceNote: dexieEdge.sourceNote,
             createdAt: dexieEdge.createdAt || Date.now()
+        };
+    }
+
+    /**
+     * Convert a Dexie Folder to StoreFolder format.
+     */
+    static fromDexieFolder(dexieFolder: any): StoreFolder {
+        return {
+            id: dexieFolder.id,
+            name: dexieFolder.name || '',
+            parentId: dexieFolder.parentId,
+            worldId: dexieFolder.worldId || '',
+            narrativeId: dexieFolder.narrativeId,
+            folderOrder: dexieFolder.folderOrder ?? dexieFolder.order ?? 0,
+            createdAt: dexieFolder.createdAt || Date.now(),
+            updatedAt: dexieFolder.updatedAt || Date.now()
         };
     }
 }

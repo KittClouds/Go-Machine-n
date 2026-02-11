@@ -81,6 +81,9 @@ export interface HighlighterApi {
 
     /** Handle keystroke for scan coordinator punctuation trigger */
     onKeystroke(char: string, cursorPos: number, contextText: string): void;
+
+    /** Force a rescan of the document (clears cached context) */
+    forceRescan(): void;
 }
 
 export interface ProseMirrorDoc {
@@ -324,35 +327,100 @@ class DefaultHighlighterApi implements HighlighterApi {
             return [];
         }
 
-        const batch: { id: number, text: string, pos: number }[] = [];
-        let batchIdCounter = 0;
+        // Build segment map for position remapping
+        const segments: { pmPos: number; concatStart: number; length: number; text: string }[] = [];
+        let fullText = '';
 
         doc.descendants((node, pos) => {
             if (node.isText && node.text) {
-                batch.push({ id: batchIdCounter++, text: node.text, pos });
+                segments.push({ pmPos: pos, concatStart: fullText.length, length: node.text.length, text: node.text });
+                fullText += node.text;
+                // Add newline for block nodes to better match natural text flow if we were scanning paragraphs
+                // But implicit scanner works on raw string, so concatenation is safer for 1:1 mapping
             }
         });
 
-        if (batch.length === 0) return [];
+        if (segments.length === 0) return [];
 
-        const allSpans: DecorationSpan[] = [];
+        console.log(`[HighlighterApi] scanForSpansAsync: Scanning ${fullText.length} chars. Segments: ${segments.length}`);
+        // Log more text to be sure
+        console.log(`[HighlighterApi] Text Preview: "${fullText.slice(0, 500).replace(/\n/g, '\\n')}"`);
 
-        for (const item of batch) {
-            try {
-                const spans = await goKittService.scanImplicitAsync(item.text);
-                for (const span of spans) {
-                    allSpans.push({
-                        ...span,
-                        from: span.from + item.pos,
-                        to: span.to + item.pos,
-                    });
-                }
-            } catch (e) {
-                console.error('[HighlighterApi] scanForSpansAsync error:', e);
-            }
+        // Check specifically for brackets which indicate tags
+        if (fullText.includes('[')) {
+            console.log(`[HighlighterApi] Found brackets at indices: ${fullText.indexOf('[')}, ${fullText.lastIndexOf('[')}`);
+        } else {
+            console.log(`[HighlighterApi] NO BRACKETS found in text!`);
         }
 
-        console.log(`[HighlighterApi] scanForSpansAsync returned ${allSpans.length} spans`);
+        // SINGLE worker call
+        console.log(`[HighlighterApi] Requesting implicit scan for ${fullText.length} chars...`);
+        const rawSpans = await goKittService.scanImplicitAsync(fullText);
+        console.log(`[HighlighterApi] implicit scan returned ${rawSpans.length} spans.`);
+
+        // Debug: Look for specific failing entity
+        const debugTarget = "Yellow Dragon";
+        const hasTarget = fullText.includes(debugTarget);
+        const foundTarget = rawSpans.some(s => s.label === debugTarget);
+        if (hasTarget) {
+            console.log(`[HighlighterApi] DEBUG: Text contains "${debugTarget}". Found in spans? ${foundTarget}`);
+            if (!foundTarget) {
+                console.log(`[HighlighterApi] DEBUG: Missing target! Text context: ...${fullText.substring(fullText.indexOf(debugTarget) - 20, fullText.indexOf(debugTarget) + 20)}...`);
+            }
+        }
+        const allSpans: DecorationSpan[] = [];
+        let droppedSpans = 0;
+        let crossedSpans = 0;
+
+        for (const span of rawSpans) {
+            if (span.from >= span.to) continue;
+
+            // Debug: Check what text the scanner THINKS it found vs what is in fullText
+            const scannedText = fullText.slice(span.from, span.to);
+            // console.log(`[HighlighterApi] Span candidate: "${span.label}" at ${span.from}-${span.to}. Actual text: "${scannedText}"`);
+
+            // Find start segment
+            const startSeg = segments.find(s => span.from >= s.concatStart && span.from < s.concatStart + s.length);
+
+            // Find end segment (using to-1 to handle exclusive end)
+            const endIndex = span.to - 1;
+            const endSeg = segments.find(s => endIndex >= s.concatStart && endIndex < s.concatStart + s.length);
+
+            if (!startSeg || !endSeg) {
+                // Span is out of bounds of the text we mapped
+                droppedSpans++;
+                // console.warn(`[HighlighterApi] Dropped span out of bounds: ${span.label} (${span.from}-${span.to})`);
+                continue;
+            }
+
+            // Calculate ProseMirror positions
+            // Start: PM position of segment start + offset into segment
+            const pmFrom = startSeg.pmPos + (span.from - startSeg.concatStart);
+
+            // End: PM position of segment start + offset into segment
+            const pmTo = endSeg.pmPos + (span.to - endSeg.concatStart);
+
+            if (startSeg !== endSeg) {
+                crossedSpans++;
+            }
+
+            // Verify the mapped text by reading from the doc (if possible, but we don't have random access to doc here easily without re-querying)
+            // Instead we rely on the segment text logic
+
+            allSpans.push({
+                ...span,
+                from: pmFrom,
+                to: pmTo,
+            });
+        }
+
+        console.log(`[HighlighterApi] Mapped ${allSpans.length} spans. Dropped: ${droppedSpans}, Crossed: ${crossedSpans}.`);
+        if (allSpans.length > 0) {
+            // Log first few spans for debugging
+            const samples = allSpans.slice(0, 3).map(s => `${s.label} (${s.from}-${s.to})`).join(', ');
+            console.log(`[HighlighterApi] Sample spans: ${samples}`);
+        }
+
         return allSpans;
     }
 
@@ -470,49 +538,55 @@ class DefaultHighlighterApi implements HighlighterApi {
         const noteIdForSave = this.currentNoteId;
         const contentHashForSave = hashContent(fullText);
 
-        const scanPromises = batch.map(async (item) => {
+        // Build segment map for concat → ProseMirror position remapping
+        const segments = batch.map(item => ({
+            id: item.id,
+            pmPos: nodePositions.get(item.id)!,
+            concatStart: 0, // filled below
+            length: item.text.length,
+            text: item.text,
+        }));
+        let concatOffset = 0;
+        for (const seg of segments) {
+            seg.concatStart = concatOffset;
+            concatOffset += seg.length;
+        }
+
+        // SINGLE worker call (was: N parallel calls → N worker messages)
+        const singleScanPromise = (async () => {
             try {
-                // HIGHLIGHTER C: Use ONLY Aho-Corasick implicit scanner from GoKitt
-                // No regex pattern scanning - plain text matching only
-                const implicitSpans = await goKittService?.scanImplicitAsync(item.text) ?? [];
+                const rawSpans = await goKittService?.scanImplicitAsync(fullText) ?? [];
+                const mergedSpans: DecorationSpan[] = [];
 
-                // All spans come from Aho-Corasick now
-                const mergedSpans = [...implicitSpans];
+                for (const span of rawSpans) {
+                    // Find which text node segment this span belongs to
+                    const seg = segments.find(s =>
+                        span.from >= s.concatStart && span.from < s.concatStart + s.length
+                    );
+                    if (!seg) continue;
+                    // Skip spans crossing node boundaries
+                    if (span.to > seg.concatStart + seg.length) continue;
 
-                // Add Resilient Anchors (Selectors) to all new spans
-                mergedSpans.forEach(span => {
-                    if (!span.selector) {
-                        span.selector = createSelector(item.text, span.from, span.to);
-                    }
-                });
+                    const localFrom = span.from - seg.concatStart;
+                    const localTo = span.to - seg.concatStart;
 
-                return { id: item.id, spans: mergedSpans };
+                    mergedSpans.push({
+                        ...span,
+                        from: seg.pmPos + localFrom,
+                        to: seg.pmPos + localTo,
+                        selector: span.selector || createSelector(seg.text, localFrom, localTo),
+                    });
+                }
+                return mergedSpans;
             } catch (e) {
-                console.error(`[HighlighterApi.scan] Error:`, e);
-                return { id: item.id, spans: [] };
+                console.error('[HighlighterApi.scan] Error:', e);
+                return [];
             }
-        });
+        })();
 
-
-
-        Promise.all(scanPromises).then(async (results) => {
+        singleScanPromise.then(async (mergedSpans) => {
             if (this.scanVersion !== myVersion) {
                 return;
-            }
-
-            const mergedSpans: DecorationSpan[] = [];
-
-            for (const { id, spans } of results) {
-                const nodeStart = nodePositions.get(id);
-                if (nodeStart !== undefined) {
-                    for (const span of spans) {
-                        mergedSpans.push({
-                            ...span,
-                            from: nodeStart + span.from,
-                            to: nodeStart + span.to
-                        });
-                    }
-                }
             }
 
             // Only notify if spans actually changed (avoids flicker)

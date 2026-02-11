@@ -1,20 +1,19 @@
 /**
  * LLM Relationship Extractor Service
  * 
- * Extracts relationships between entities from notes using LLM.
+ * Extracts relationships between entities from notes using LLM via Go WASM.
  * Works alongside LlmEntityExtractorService to build the knowledge graph.
  * 
- * Phase 1 of CST-LLM Integration:
- * - LLM extracts relationships from prose
- * - Uses known entities to prime the extraction
- * - Outputs QuadPlus-compatible relationships with modifiers
+ * Go handles prompt construction, LLM call, and JSON parsing.
+ * LlmBatchService retained for configuration settings only.
+ * CST validation via GoKitt's validateRelations.
  */
 
 import { Injectable, inject, signal } from '@angular/core';
 import * as ops from '../operations';
 import { smartGraphRegistry } from '../registry';
 import { LlmBatchService } from './llm-batch.service';
-import { ENTITY_KINDS, type EntityKind, isEntityKind } from '../cozo/utils';
+import { type EntityKind, isEntityKind } from '../cozo/utils';
 import { GoKittService } from '../../services/gokitt.service';
 
 // ============================================================================
@@ -67,71 +66,6 @@ export interface RelationCommitResult {
 }
 
 // ============================================================================
-// Relationship Types from GoKitt's verb lexicon
-// ============================================================================
-
-const RELATION_TYPES = [
-    // Hierarchy
-    'LEADS', 'MEMBER_OF', 'REPORTS_TO', 'COMMANDS',
-    // Social
-    'ALLIED_WITH', 'ENEMY_OF', 'FRIEND_OF', 'RIVAL_OF',
-    // Conflict
-    'BATTLES', 'DEFEATS', 'KILLED_BY', 'CAPTURES', 'CAPTIVE_OF',
-    // Possession
-    'OWNS', 'CREATED', 'DESTROYED', 'USES',
-    // Location
-    'LOCATED_IN', 'TRAVELED_TO', 'ORIGINATES_FROM',
-    // Knowledge
-    'KNOWS', 'TEACHES', 'LEARNED_FROM',
-    // Communication
-    'SPEAKS_TO', 'MENTIONS', 'REVEALS',
-    // State Change
-    'BECOMES', 'TRANSFORMS_INTO', 'INHERITS_FROM',
-    // Participation
-    'PARTICIPATES_IN', 'WITNESSES', 'CAUSES',
-] as const;
-
-type RelationType = typeof RELATION_TYPES[number];
-
-// ============================================================================
-// Prompts
-// ============================================================================
-
-const SYSTEM_PROMPT = `You are a relationship extraction assistant for narrative analysis.
-Extract relationships between named entities from text.
-Return ONLY a valid JSON array. No markdown, no explanation. Start with [ and end with ].`;
-
-const buildUserPrompt = (text: string, knownEntities: string[]) => `
-Extract relationships between entities from this text. Return a JSON array.
-
-${knownEntities.length > 0 ? `KNOWN ENTITIES (prioritize these):
-${knownEntities.join(', ')}
-
-` : ''}RELATIONSHIP TYPES:
-${RELATION_TYPES.join(', ')}
-
-Each object in the array:
-- "subject": Entity performing the action (string)
-- "object": Entity receiving the action (string)  
-- "verb": The verb phrase from the text (string)
-- "relationType": One of the relationship types above (string)
-- "manner": Optional - how the action was performed (string)
-- "location": Optional - where it happened (string)
-- "time": Optional - when it happened (string)
-- "recipient": Optional - for communication verbs, who was told (string)
-- "confidence": 0.0-1.0 (number)
-- "sourceSentence": The exact sentence this came from (string)
-
-RULES:
-1. Only extract relationships between named entities (proper nouns)
-2. One relationship per verb phrase
-3. Include the exact source sentence for validation
-4. confidence >= 0.8 for explicit statements, 0.5-0.8 for implied
-
-TEXT:
-${text}`;
-
-// ============================================================================
 // Service
 // ============================================================================
 
@@ -141,6 +75,8 @@ ${text}`;
 export class LlmRelationExtractorService {
     private llmBatch = inject(LlmBatchService);
     private goKitt = inject(GoKittService);
+    // Track whether Go batch was initialized
+    private goBatchInitialized = false;
 
     // Extraction state
     isExtracting = signal(false);
@@ -161,6 +97,30 @@ export class LlmRelationExtractorService {
             provider: this.llmBatch.provider(),
             model: this.llmBatch.currentModel()
         };
+    }
+
+    /**
+     * Ensure Go batch service is initialized with current config.
+     */
+    private async ensureGoBatchInit(): Promise<void> {
+        if (this.goBatchInitialized) return;
+
+        const cfg = this.llmBatch.getConfig();
+        const result = await this.goKitt.batchInit({
+            provider: cfg.provider,
+            googleApiKey: cfg.googleApiKey,
+            googleModel: cfg.googleModel,
+            openRouterApiKey: cfg.openRouterApiKey,
+            openRouterModel: cfg.openRouterModel
+        });
+
+        if (result.success) {
+            this.goBatchInitialized = true;
+            console.log('[LlmRelationExtractor] Go batch initialized:', result.provider, result.model);
+        } else {
+            console.error('[LlmRelationExtractor] Go batch init failed:', result.error);
+            throw new Error(`Go batch init failed: ${result.error}`);
+        }
     }
 
     /**
@@ -215,7 +175,8 @@ export class LlmRelationExtractorService {
     }
 
     /**
-     * Extract relationships from a single note's text
+     * Extract relationships from a single note's text via Go WASM.
+     * Go handles prompt construction, LLM call, and JSON parsing.
      * @param noteId The note ID for provenance
      * @param text The note content
      * @param knownEntities Optional list of known entity labels to prime extraction
@@ -227,14 +188,28 @@ export class LlmRelationExtractorService {
     ): Promise<ExtractedRelation[]> {
         if (!text.trim()) return [];
 
-        // Limit text to avoid token limits
-        const truncatedText = text.substring(0, 8000);
-        const userPrompt = buildUserPrompt(truncatedText, knownEntities);
-
         try {
-            const response = await this.llmBatch.complete(userPrompt, SYSTEM_PROMPT);
-            const relations = this.parseRelationResponse(response, noteId);
-            return relations;
+            await this.ensureGoBatchInit();
+
+            // Go handles prompt + LLM call + parsing
+            const relations = await this.goKitt.extractRelations(text, knownEntities);
+
+            // Stamp sourceNoteId (Go doesn't know about note IDs)
+            return (relations || []).map((r: any) => ({
+                subject: r.subject || '',
+                subjectKind: r.subjectKind ? (isEntityKind(r.subjectKind) ? r.subjectKind : undefined) : undefined,
+                object: r.object || '',
+                objectKind: r.objectKind ? (isEntityKind(r.objectKind) ? r.objectKind : undefined) : undefined,
+                verb: r.verb || '',
+                relationType: r.relationType || 'KNOWS',
+                manner: r.manner,
+                location: r.location,
+                time: r.time,
+                recipient: r.recipient,
+                confidence: r.confidence ?? 0.7,
+                sourceSentence: r.sourceSentence || '',
+                sourceNoteId: noteId
+            }));
         } catch (err) {
             console.error('[LlmRelationExtractor] Extraction failed for note:', noteId, err);
             return [];
@@ -422,111 +397,5 @@ export class LlmRelationExtractorService {
         }
 
         return result;
-    }
-
-    /**
-     * Parse LLM response into relations
-     */
-    private parseRelationResponse(response: string, sourceNoteId: string): ExtractedRelation[] {
-        try {
-            let jsonStr = response.trim();
-
-            // Remove markdown code block if present
-            if (jsonStr.startsWith('```')) {
-                const lines = jsonStr.split('\n');
-                lines.shift();
-                if (lines[lines.length - 1].startsWith('```')) {
-                    lines.pop();
-                }
-                jsonStr = lines.join('\n');
-            }
-
-            // Try parsing
-            let parsed: any[];
-            try {
-                parsed = JSON.parse(jsonStr);
-            } catch {
-                console.warn('[LlmRelationExtractor] JSON parse failed, attempting repair...');
-                parsed = this.repairTruncatedJson(jsonStr);
-            }
-
-            if (!Array.isArray(parsed)) {
-                console.warn('[LlmRelationExtractor] Response is not an array');
-                return [];
-            }
-
-            const relations: ExtractedRelation[] = [];
-
-            for (const item of parsed) {
-                // Validate required fields
-                if (!item.subject || !item.object || !item.relationType) {
-                    continue;
-                }
-
-                // Normalize relation type
-                const relType = String(item.relationType).toUpperCase().replace(/ /g, '_');
-
-                // Validate relation type (allow unknown types for flexibility)
-                if (!RELATION_TYPES.includes(relType as any)) {
-                    console.log(`[LlmRelationExtractor] Non-standard relation type: ${relType}`);
-                }
-
-                relations.push({
-                    subject: String(item.subject).trim(),
-                    subjectKind: item.subjectKind ? this.parseKind(item.subjectKind) : undefined,
-                    object: String(item.object).trim(),
-                    objectKind: item.objectKind ? this.parseKind(item.objectKind) : undefined,
-                    verb: item.verb ? String(item.verb).trim() : relType.toLowerCase().replace(/_/g, ' '),
-                    relationType: relType,
-                    manner: item.manner ? String(item.manner).trim() : undefined,
-                    location: item.location ? String(item.location).trim() : undefined,
-                    time: item.time ? String(item.time).trim() : undefined,
-                    recipient: item.recipient ? String(item.recipient).trim() : undefined,
-                    confidence: typeof item.confidence === 'number' ? item.confidence : 0.7,
-                    sourceSentence: item.sourceSentence ? String(item.sourceSentence) : '',
-                    sourceNoteId
-                });
-            }
-
-            console.log(`[LlmRelationExtractor] Parsed ${relations.length} relations`);
-            return relations;
-        } catch (err) {
-            console.error('[LlmRelationExtractor] Failed to parse:', err);
-            console.log('[LlmRelationExtractor] Raw response:', response.substring(0, 500));
-            return [];
-        }
-    }
-
-    /**
-     * Parse entity kind string
-     */
-    private parseKind(kind: string): EntityKind | undefined {
-        const upper = String(kind).toUpperCase();
-        return isEntityKind(upper) ? upper as EntityKind : undefined;
-    }
-
-    /**
-     * Attempt to repair truncated JSON
-     */
-    private repairTruncatedJson(jsonStr: string): any[] {
-        const results: any[] = [];
-
-        // Match complete relation objects
-        const pattern = /\{\s*"subject"\s*:\s*"[^"]+"\s*,\s*"object"\s*:\s*"[^"]+"\s*,\s*"relationType"\s*:\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*:\s*(?:"[^"]*"|[\d.]+|\[[^\]]*\]|true|false|null))*\s*\}/g;
-
-        let match;
-        while ((match = pattern.exec(jsonStr)) !== null) {
-            try {
-                const obj = JSON.parse(match[0]);
-                if (obj.subject && obj.object && obj.relationType) {
-                    results.push(obj);
-                }
-            } catch {
-                // Skip malformed
-            }
-        }
-
-        console.log(`[LlmRelationExtractor] Recovered ${results.length} relations from malformed JSON`);
-        return results;
     }
 }

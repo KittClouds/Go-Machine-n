@@ -71,10 +71,13 @@ export interface Entity {
 // =============================================================================
 
 let _bridge: GoSqliteCozoBridge | null = null;
+let _bridgeResolve: (() => void) | null = null;
+const _bridgeReady = new Promise<void>(resolve => { _bridgeResolve = resolve; });
 
 export function setGoSqliteBridge(bridge: GoSqliteCozoBridge): void {
     _bridge = bridge;
     console.log('[Operations] ✅ GoSqlite Bridge connected');
+    _bridgeResolve?.();
 }
 
 function requireBridge(): GoSqliteCozoBridge {
@@ -82,6 +85,12 @@ function requireBridge(): GoSqliteCozoBridge {
         throw new Error('[Operations] Bridge not ready - called too early');
     }
     return _bridge;
+}
+
+/** Wait for bridge to be ready (for writes that arrive before boot completes) */
+async function waitForBridge(): Promise<GoSqliteCozoBridge> {
+    await _bridgeReady;
+    return _bridge!;
 }
 
 function getBridge(): GoSqliteCozoBridge | null {
@@ -126,7 +135,7 @@ export async function createNote(note: Omit<Note, 'id' | 'createdAt' | 'updatedA
 }
 
 export async function updateNote(id: string, updates: Partial<Note>): Promise<void> {
-    const bridge = requireBridge();
+    const bridge = await waitForBridge();
 
     // Get existing from GoSQLite
     const existing = await bridge.getNote(id);

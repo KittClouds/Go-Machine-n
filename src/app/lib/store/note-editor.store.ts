@@ -1,7 +1,7 @@
 // src/app/lib/store/note-editor.store.ts
 // Single source of truth for the currently active note
 // Uses signals + Dexie liveQuery for reactive state
-// INCLUDES: localStorage persistence for active note and editor position
+// INCLUDES: Dexie settings persistence for active note and editor position
 
 import { Injectable, signal, computed, effect, Inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
@@ -9,6 +9,7 @@ import { Observable, Subject, from, of, switchMap, debounceTime, distinctUntilCh
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { liveQuery, Observable as DexieObservable } from 'dexie';
 import { db, Note } from '../dexie/db';
+import { getSetting, setSetting, removeSetting } from '../dexie/settings.service';
 import * as ops from '../operations';
 
 const ACTIVE_NOTE_KEY = 'kittclouds-active-note';
@@ -113,33 +114,26 @@ export class NoteEditorStore {
     private restoreActiveNote(): void {
         if (!this.isBrowser) return;
 
-        const storedNoteId = localStorage.getItem(ACTIVE_NOTE_KEY);
+        const storedNoteId = getSetting<string | null>(ACTIVE_NOTE_KEY, null);
         if (storedNoteId) {
             console.log(`[NoteEditorStore] Restoring active note: ${storedNoteId}`);
 
             // Load saved position
-            const positionJson = localStorage.getItem(EDITOR_POSITION_KEY);
-            if (positionJson) {
-                try {
-                    const position = JSON.parse(positionJson) as EditorPosition;
-                    if (position.noteId === storedNoteId) {
-                        this.pendingPosition = position;
-                        console.log(`[NoteEditorStore] Loaded editor position:`, position);
-                    }
-                } catch (e) {
-                    console.warn('[NoteEditorStore] Failed to parse stored position');
-                }
+            const position = getSetting<EditorPosition | null>(EDITOR_POSITION_KEY, null);
+            if (position && position.noteId === storedNoteId) {
+                this.pendingPosition = position;
+                console.log(`[NoteEditorStore] Loaded editor position:`, position);
             }
 
-            // Verify note still exists before opening (using GoSQLite)
-            ops.getNote(storedNoteId).then(note => {
+            // Verify note still exists using Dexie (loaded pre-Angular, instant)
+            // NOT GoSqlite — that waits for WASM + OPFS which takes seconds
+            db.notes.get(storedNoteId).then(note => {
                 if (note) {
                     this.activeNoteId.set(storedNoteId);
                 } else {
-                    // Not a warning - just cleanup of stale reference
                     console.log(`[NoteEditorStore] Stored note ${storedNoteId} no longer exists, clearing`);
-                    localStorage.removeItem(ACTIVE_NOTE_KEY);
-                    localStorage.removeItem(EDITOR_POSITION_KEY);
+                    removeSetting(ACTIVE_NOTE_KEY);
+                    removeSetting(EDITOR_POSITION_KEY);
                 }
             });
         }
@@ -149,10 +143,10 @@ export class NoteEditorStore {
         if (!this.isBrowser) return;
 
         if (noteId) {
-            localStorage.setItem(ACTIVE_NOTE_KEY, noteId);
+            setSetting(ACTIVE_NOTE_KEY, noteId);
         } else {
-            localStorage.removeItem(ACTIVE_NOTE_KEY);
-            localStorage.removeItem(EDITOR_POSITION_KEY);
+            removeSetting(ACTIVE_NOTE_KEY);
+            removeSetting(EDITOR_POSITION_KEY);
         }
     }
 
@@ -183,7 +177,7 @@ export class NoteEditorStore {
             cursorTo
         };
 
-        localStorage.setItem(EDITOR_POSITION_KEY, JSON.stringify(position));
+        setSetting(EDITOR_POSITION_KEY, position);
     }
 
     // ─────────────────────────────────────────────────────────────

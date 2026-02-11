@@ -120,22 +120,7 @@ export interface ChatMessage {
 // Schema Definitions
 // ============================================================================
 
-/**
- * Chat messages: AI conversation history with session grouping.
- * Persisted to CozoDB for cross-session recall.
- */
-export const CHAT_MESSAGES_SCHEMA = `
-:create chat_messages {
-    id: String
-    =>
-    session_id: String,
-    role: String,
-    content: String,
-    created_at: Float,
-    narrative_id: String default '',
-    metadata: Json default {}
-}
-`;
+// NOTE: chat_messages schema removed - now using Go/SQLite via GoChatService
 
 /**
  * Episode log: Append-only action stream for temporal reasoning.

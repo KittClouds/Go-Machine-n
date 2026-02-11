@@ -57,6 +57,14 @@ type GoKittWorkerMessage =
     | { type: 'STORE_GET_EDGE'; payload: { id: string }; id: number }
     | { type: 'STORE_DELETE_EDGE'; payload: { id: string }; id: number }
     | { type: 'STORE_LIST_EDGES'; payload: { entityId: string }; id: number }
+    // Store Export/Import (OPFS Sync)
+    | { type: 'STORE_EXPORT'; id: number }
+    | { type: 'STORE_IMPORT'; payload: { data: ArrayBuffer }; id: number }
+    // Store Folder CRUD
+    | { type: 'STORE_UPSERT_FOLDER'; payload: { folderJSON: string }; id: number }
+    | { type: 'STORE_GET_FOLDER'; payload: { id: string }; id: number }
+    | { type: 'STORE_DELETE_FOLDER'; payload: { id: string }; id: number }
+    | { type: 'STORE_LIST_FOLDERS'; payload: { parentId?: string }; id: number }
     // Phase 3: Graph Merger API
     | { type: 'MERGER_INIT'; id: number }
     | { type: 'MERGER_ADD_SCANNER'; payload: { noteId: string; graphJSON: string }; id: number }
@@ -69,7 +77,28 @@ type GoKittWorkerMessage =
     // Phase 5: SharedArrayBuffer Zero-Copy
     | { type: 'SAB_INIT'; payload: { sab: SharedArrayBuffer }; id: number }
     | { type: 'SAB_SCAN_TO_BUFFER'; payload: { text: string }; id: number }
-    | { type: 'SAB_GET_STATUS'; id: number };
+    | { type: 'SAB_GET_STATUS'; id: number }
+    // Phase 6: LLM Batch + Extraction + Agent
+    | { type: 'BATCH_INIT'; payload: { configJSON: string }; id: number }
+    | { type: 'EXTRACT_FROM_NOTE'; payload: { text: string; knownEntitiesJSON?: string }; id: number }
+    | { type: 'EXTRACT_ENTITIES'; payload: { text: string }; id: number }
+    | { type: 'EXTRACT_RELATIONS'; payload: { text: string; knownEntitiesJSON?: string }; id: number }
+    | { type: 'AGENT_CHAT_WITH_TOOLS'; payload: { messagesJSON: string; toolsJSON: string; systemPrompt?: string }; id: number }
+    // Phase 7: Observational Memory + Chat Service
+    | { type: 'CHAT_INIT'; payload: { configJSON: string }; id: number }
+    | { type: 'CHAT_CREATE_THREAD'; payload: { worldId: string; narrativeId: string }; id: number }
+    | { type: 'CHAT_GET_THREAD'; payload: { id: string }; id: number }
+    | { type: 'CHAT_LIST_THREADS'; payload: { worldId: string }; id: number }
+    | { type: 'CHAT_DELETE_THREAD'; payload: { id: string }; id: number }
+    | { type: 'CHAT_ADD_MESSAGE'; payload: { threadId: string; role: string; content: string; narrativeId: string }; id: number }
+    | { type: 'CHAT_GET_MESSAGES'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_UPDATE_MESSAGE'; payload: { messageId: string; content: string }; id: number }
+    | { type: 'CHAT_APPEND_MESSAGE'; payload: { messageId: string; chunk: string }; id: number }
+    | { type: 'CHAT_START_STREAMING'; payload: { threadId: string; narrativeId: string }; id: number }
+    | { type: 'CHAT_GET_MEMORIES'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_GET_CONTEXT'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_CLEAR_THREAD'; payload: { threadId: string }; id: number }
+    | { type: 'CHAT_EXPORT_THREAD'; payload: { threadId: string }; id: number };
 
 /** Outgoing messages to main thread */
 type GoKittWorkerResponse =
@@ -104,6 +133,14 @@ type GoKittWorkerResponse =
     | { type: 'STORE_GET_EDGE_RESULT'; id: number; payload: any | null }
     | { type: 'STORE_DELETE_EDGE_RESULT'; id: number; payload: { success: boolean; error?: string } }
     | { type: 'STORE_LIST_EDGES_RESULT'; id: number; payload: any[] }
+    // Store Export/Import responses
+    | { type: 'STORE_EXPORT_RESULT'; id: number; payload: { data: ArrayBuffer; size: number } | { success: false; error: string } }
+    | { type: 'STORE_IMPORT_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    // Store Folder responses
+    | { type: 'STORE_UPSERT_FOLDER_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'STORE_GET_FOLDER_RESULT'; id: number; payload: any | null }
+    | { type: 'STORE_DELETE_FOLDER_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'STORE_LIST_FOLDERS_RESULT'; id: number; payload: any[] }
     // Phase 3: Graph Merger responses
     | { type: 'MERGER_INIT_RESULT'; id: number; payload: { success: boolean; error?: string } }
     | { type: 'MERGER_ADD_SCANNER_RESULT'; id: number; payload: { success: boolean; added: number; error?: string } }
@@ -117,6 +154,27 @@ type GoKittWorkerResponse =
     | { type: 'SAB_INIT_RESULT'; id: number; payload: { success: boolean; initialized: boolean; bufferSize: number; error?: string } }
     | { type: 'SAB_SCAN_TO_BUFFER_RESULT'; id: number; payload: { success: boolean; spans: number; payloadSize: number; error?: string } }
     | { type: 'SAB_GET_STATUS_RESULT'; id: number; payload: { success: boolean; initialized: boolean; bufferSize: number; error?: string } }
+    // Phase 6: LLM responses
+    | { type: 'BATCH_INIT_RESULT'; id: number; payload: { success: boolean; provider?: string; model?: string; error?: string } }
+    | { type: 'EXTRACT_FROM_NOTE_RESULT'; id: number; payload: any }
+    | { type: 'EXTRACT_ENTITIES_RESULT'; id: number; payload: any }
+    | { type: 'EXTRACT_RELATIONS_RESULT'; id: number; payload: any }
+    | { type: 'AGENT_CHAT_WITH_TOOLS_RESULT'; id: number; payload: any }
+    // Phase 7: Chat Service responses
+    | { type: 'CHAT_INIT_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_CREATE_THREAD_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_THREAD_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_LIST_THREADS_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_DELETE_THREAD_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_ADD_MESSAGE_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_MESSAGES_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_UPDATE_MESSAGE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_APPEND_MESSAGE_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_START_STREAMING_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_MEMORIES_RESULT'; id: number; payload: any }
+    | { type: 'CHAT_GET_CONTEXT_RESULT'; id: number; payload: string }
+    | { type: 'CHAT_CLEAR_THREAD_RESULT'; id: number; payload: { success: boolean; error?: string } }
+    | { type: 'CHAT_EXPORT_THREAD_RESULT'; id: number; payload: string }
     | { type: 'ERROR'; id?: number; payload: { message: string } };
 
 // =============================================================================
@@ -213,6 +271,14 @@ declare const GoKitt: {
     storeGetEdge: (id: string) => string;
     storeDeleteEdge: (id: string) => string;
     storeListEdges: (entityId: string) => string;
+    // Store Export/Import (OPFS Sync)
+    storeExport: () => any; // Returns Uint8Array
+    storeImport: (data: any) => string; // Accepts Uint8Array
+    // Store Folder CRUD
+    storeUpsertFolder: (folderJSON: string) => string;
+    storeGetFolder: (id: string) => string;
+    storeDeleteFolder: (id: string) => string;
+    storeListFolders: (parentId?: string) => string;
     // Phase 3: Graph Merger API
     mergerInit: () => string;
     mergerAddScanner: (noteId: string, graphJSON: string) => string;
@@ -226,6 +292,27 @@ declare const GoKitt: {
     sabInit: (sab: SharedArrayBuffer) => string;
     sabScanToBuffer: (text: string) => string;
     sabGetBufferStatus: () => string;
+    // Phase 6: LLM Batch + Extraction + Agent (async - returns Promise)
+    batchInit: (configJSON: string) => string;
+    extractFromNote: (text: string, knownEntitiesJSON?: string) => Promise<string>;
+    extractEntities: (text: string) => Promise<string>;
+    extractRelations: (text: string, knownEntitiesJSON?: string) => Promise<string>;
+    agentChatWithTools: (messagesJSON: string, toolsJSON: string, systemPrompt?: string) => Promise<string>;
+    // Phase 7: Observational Memory + Chat Service
+    chatInit: (configJSON: string) => string;
+    chatCreateThread: (worldId: string, narrativeId: string) => string;
+    chatGetThread: (id: string) => string;
+    chatListThreads: (worldId: string) => string;
+    chatDeleteThread: (id: string) => string;
+    chatAddMessage: (threadId: string, role: string, content: string, narrativeId: string) => string;
+    chatGetMessages: (threadId: string) => string;
+    chatUpdateMessage: (messageId: string, content: string) => string;
+    chatAppendMessage: (messageId: string, chunk: string) => string;
+    chatStartStreaming: (threadId: string, narrativeId: string) => string;
+    chatGetMemories: (threadId: string) => string;
+    chatGetContext: (threadId: string) => string;
+    chatClearThread: (threadId: string) => string;
+    chatExportThread: (threadId: string) => string;
 };
 
 /**
@@ -743,12 +830,23 @@ self.onmessage = async (e: MessageEvent<GoKittWorkerMessage>) => {
                 }
 
                 const res = GoKitt.storeListNotes(msg.payload.folderId || '');
-                const notes = JSON.parse(res);
+                const parsed = JSON.parse(res);
+
+                // Check for error response from Go
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) {
+                    console.error('[Worker] STORE_LIST_NOTES error:', parsed.error);
+                    self.postMessage({
+                        type: 'STORE_LIST_NOTES_RESULT',
+                        id: msg.id,
+                        payload: []
+                    } as GoKittWorkerResponse);
+                    return;
+                }
 
                 self.postMessage({
                     type: 'STORE_LIST_NOTES_RESULT',
                     id: msg.id,
-                    payload: notes || []
+                    payload: Array.isArray(parsed) ? parsed : []
                 } as GoKittWorkerResponse);
                 break;
             }
@@ -848,12 +946,23 @@ self.onmessage = async (e: MessageEvent<GoKittWorkerMessage>) => {
                 }
 
                 const res = GoKitt.storeListEntities(msg.payload.kind || '');
-                const entities = JSON.parse(res);
+                const parsed = JSON.parse(res);
+
+                // Check for error response from Go
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) {
+                    console.error('[Worker] STORE_LIST_ENTITIES error:', parsed.error);
+                    self.postMessage({
+                        type: 'STORE_LIST_ENTITIES_RESULT',
+                        id: msg.id,
+                        payload: []
+                    } as GoKittWorkerResponse);
+                    return;
+                }
 
                 self.postMessage({
                     type: 'STORE_LIST_ENTITIES_RESULT',
                     id: msg.id,
-                    payload: entities || []
+                    payload: Array.isArray(parsed) ? parsed : []
                 } as GoKittWorkerResponse);
                 break;
             }
@@ -932,12 +1041,180 @@ self.onmessage = async (e: MessageEvent<GoKittWorkerMessage>) => {
                 }
 
                 const res = GoKitt.storeListEdges(msg.payload.entityId);
-                const edges = JSON.parse(res);
+                const parsed = JSON.parse(res);
+
+                // Check for error response from Go
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) {
+                    console.error('[Worker] STORE_LIST_EDGES error:', parsed.error);
+                    self.postMessage({
+                        type: 'STORE_LIST_EDGES_RESULT',
+                        id: msg.id,
+                        payload: []
+                    } as GoKittWorkerResponse);
+                    return;
+                }
 
                 self.postMessage({
                     type: 'STORE_LIST_EDGES_RESULT',
                     id: msg.id,
-                    payload: edges || []
+                    payload: Array.isArray(parsed) ? parsed : []
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            // =================================================================
+            // Store Export/Import (OPFS Sync)
+            // =================================================================
+
+            case 'STORE_EXPORT': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'STORE_EXPORT_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const result = GoKitt.storeExport();
+                // storeExport returns a Uint8Array directly (not JSON)
+                if (result instanceof Uint8Array) {
+                    // Transfer the buffer for zero-copy
+                    const buffer = result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength);
+                    self.postMessage({
+                        type: 'STORE_EXPORT_RESULT',
+                        id: msg.id,
+                        payload: { data: buffer, size: result.byteLength }
+                    } as GoKittWorkerResponse, [buffer]);
+                } else {
+                    // Probably an error string
+                    const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+                    self.postMessage({
+                        type: 'STORE_EXPORT_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: parsed.error || 'Unknown export error' }
+                    } as GoKittWorkerResponse);
+                }
+                break;
+            }
+
+            case 'STORE_IMPORT': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'STORE_IMPORT_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const uint8 = new Uint8Array(msg.payload.data);
+                const res = GoKitt.storeImport(uint8);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'STORE_IMPORT_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            // =================================================================
+            // Store Folder CRUD Handlers
+            // =================================================================
+
+            case 'STORE_UPSERT_FOLDER': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'STORE_UPSERT_FOLDER_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.storeUpsertFolder(msg.payload.folderJSON);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'STORE_UPSERT_FOLDER_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'STORE_GET_FOLDER': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'STORE_GET_FOLDER_RESULT',
+                        id: msg.id,
+                        payload: null
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.storeGetFolder(msg.payload.id);
+                const folder = res === 'null' ? null : JSON.parse(res);
+
+                self.postMessage({
+                    type: 'STORE_GET_FOLDER_RESULT',
+                    id: msg.id,
+                    payload: folder
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'STORE_DELETE_FOLDER': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'STORE_DELETE_FOLDER_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.storeDeleteFolder(msg.payload.id);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'STORE_DELETE_FOLDER_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'STORE_LIST_FOLDERS': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'STORE_LIST_FOLDERS_RESULT',
+                        id: msg.id,
+                        payload: []
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.storeListFolders(msg.payload.parentId || '');
+                const parsed = JSON.parse(res);
+
+                // Check for error response from Go
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) {
+                    console.error('[Worker] STORE_LIST_FOLDERS error:', parsed.error);
+                    self.postMessage({
+                        type: 'STORE_LIST_FOLDERS_RESULT',
+                        id: msg.id,
+                        payload: []
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                self.postMessage({
+                    type: 'STORE_LIST_FOLDERS_RESULT',
+                    id: msg.id,
+                    payload: Array.isArray(parsed) ? parsed : []
                 } as GoKittWorkerResponse);
                 break;
             }
@@ -1160,6 +1437,459 @@ self.onmessage = async (e: MessageEvent<GoKittWorkerMessage>) => {
                     type: 'SAB_GET_STATUS_RESULT',
                     id: msg.id,
                     payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            // =================================================================
+            // Phase 6: LLM Batch + Extraction + Agent Handlers
+            // =================================================================
+
+            case 'BATCH_INIT': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'BATCH_INIT_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.batchInit(msg.payload.configJSON);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'BATCH_INIT_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'EXTRACT_FROM_NOTE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                try {
+                    // extractFromNote returns a Promise from Go
+                    const resultJSON = await GoKitt.extractFromNote(
+                        msg.payload.text,
+                        msg.payload.knownEntitiesJSON
+                    );
+                    const parsed = JSON.parse(resultJSON);
+
+                    self.postMessage({
+                        type: 'EXTRACT_FROM_NOTE_RESULT',
+                        id: msg.id,
+                        payload: parsed
+                    } as GoKittWorkerResponse);
+                } catch (e) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: e instanceof Error ? e.message : String(e) }
+                    } as GoKittWorkerResponse);
+                }
+                break;
+            }
+
+            case 'EXTRACT_ENTITIES': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                try {
+                    const resultJSON = await GoKitt.extractEntities(msg.payload.text);
+                    const parsed = JSON.parse(resultJSON);
+
+                    self.postMessage({
+                        type: 'EXTRACT_ENTITIES_RESULT',
+                        id: msg.id,
+                        payload: parsed
+                    } as GoKittWorkerResponse);
+                } catch (e) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: e instanceof Error ? e.message : String(e) }
+                    } as GoKittWorkerResponse);
+                }
+                break;
+            }
+
+            case 'EXTRACT_RELATIONS': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                try {
+                    const resultJSON = await GoKitt.extractRelations(
+                        msg.payload.text,
+                        msg.payload.knownEntitiesJSON
+                    );
+                    const parsed = JSON.parse(resultJSON);
+
+                    self.postMessage({
+                        type: 'EXTRACT_RELATIONS_RESULT',
+                        id: msg.id,
+                        payload: parsed
+                    } as GoKittWorkerResponse);
+                } catch (e) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: e instanceof Error ? e.message : String(e) }
+                    } as GoKittWorkerResponse);
+                }
+                break;
+            }
+
+            case 'AGENT_CHAT_WITH_TOOLS': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                try {
+                    const resultJSON = await GoKitt.agentChatWithTools(
+                        msg.payload.messagesJSON,
+                        msg.payload.toolsJSON,
+                        msg.payload.systemPrompt
+                    );
+                    const parsed = JSON.parse(resultJSON);
+
+                    self.postMessage({
+                        type: 'AGENT_CHAT_WITH_TOOLS_RESULT',
+                        id: msg.id,
+                        payload: parsed
+                    } as GoKittWorkerResponse);
+                } catch (e) {
+                    self.postMessage({
+                        type: 'ERROR',
+                        id: msg.id,
+                        payload: { message: e instanceof Error ? e.message : String(e) }
+                    } as GoKittWorkerResponse);
+                }
+                break;
+            }
+
+            // =================================================================
+            // Phase 7: Observational Memory + Chat Service Handlers
+            // =================================================================
+
+            case 'CHAT_INIT': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_INIT_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatInit(msg.payload.configJSON);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_INIT_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_CREATE_THREAD': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_CREATE_THREAD_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatCreateThread(msg.payload.worldId, msg.payload.narrativeId);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_CREATE_THREAD_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_GET_THREAD': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_GET_THREAD_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatGetThread(msg.payload.id);
+                const thread = res === 'null' ? null : JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_GET_THREAD_RESULT',
+                    id: msg.id,
+                    payload: thread
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_LIST_THREADS': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_LIST_THREADS_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatListThreads(msg.payload.worldId);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_LIST_THREADS_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_DELETE_THREAD': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_DELETE_THREAD_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatDeleteThread(msg.payload.id);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_DELETE_THREAD_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_ADD_MESSAGE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_ADD_MESSAGE_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatAddMessage(
+                    msg.payload.threadId,
+                    msg.payload.role,
+                    msg.payload.content,
+                    msg.payload.narrativeId
+                );
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_ADD_MESSAGE_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_GET_MESSAGES': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_GET_MESSAGES_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatGetMessages(msg.payload.threadId);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_GET_MESSAGES_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_UPDATE_MESSAGE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_UPDATE_MESSAGE_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatUpdateMessage(msg.payload.messageId, msg.payload.content);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_UPDATE_MESSAGE_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_APPEND_MESSAGE': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_APPEND_MESSAGE_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatAppendMessage(msg.payload.messageId, msg.payload.chunk);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_APPEND_MESSAGE_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_START_STREAMING': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_START_STREAMING_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatStartStreaming(msg.payload.threadId, msg.payload.narrativeId);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_START_STREAMING_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_GET_MEMORIES': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_GET_MEMORIES_RESULT',
+                        id: msg.id,
+                        payload: { error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatGetMemories(msg.payload.threadId);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_GET_MEMORIES_RESULT',
+                    id: msg.id,
+                    payload: parsed
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_GET_CONTEXT': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_GET_CONTEXT_RESULT',
+                        id: msg.id,
+                        payload: ''
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatGetContext(msg.payload.threadId);
+
+                self.postMessage({
+                    type: 'CHAT_GET_CONTEXT_RESULT',
+                    id: msg.id,
+                    payload: res
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_CLEAR_THREAD': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_CLEAR_THREAD_RESULT',
+                        id: msg.id,
+                        payload: { success: false, error: 'WASM not loaded' }
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatClearThread(msg.payload.threadId);
+                const parsed = JSON.parse(res);
+
+                self.postMessage({
+                    type: 'CHAT_CLEAR_THREAD_RESULT',
+                    id: msg.id,
+                    payload: { success: !parsed.error, error: parsed.error }
+                } as GoKittWorkerResponse);
+                break;
+            }
+
+            case 'CHAT_EXPORT_THREAD': {
+                if (!wasmLoaded) {
+                    self.postMessage({
+                        type: 'CHAT_EXPORT_THREAD_RESULT',
+                        id: msg.id,
+                        payload: '{}'
+                    } as GoKittWorkerResponse);
+                    return;
+                }
+
+                const res = GoKitt.chatExportThread(msg.payload.threadId);
+
+                self.postMessage({
+                    type: 'CHAT_EXPORT_THREAD_RESULT',
+                    id: msg.id,
+                    payload: res
                 } as GoKittWorkerResponse);
                 break;
             }

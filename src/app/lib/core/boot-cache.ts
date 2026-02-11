@@ -4,12 +4,15 @@
 // This ensures registry data is available synchronously when components mount
 
 import { db } from '../dexie';
-import type { Entity, Edge, Note } from '../dexie';
+import type { Entity, Edge, Note, Folder, Setting } from '../dexie';
+import { hydrateFromBootData } from '../dexie/settings.service';
 
 export interface BootData {
     entities: Entity[];
     edges: Edge[];
     notes: Note[];
+    folders: Folder[];
+    settings: Setting[];
     loadedAt: number;
     duration: number;
 }
@@ -36,10 +39,12 @@ async function _loadBootData(): Promise<BootData> {
 
     try {
         // Open Dexie and load in parallel
-        const [entities, edges, notes] = await Promise.all([
+        const [entities, edges, notes, folders, settings] = await Promise.all([
             db.entities.toArray(),
             db.edges.toArray(),
-            db.notes.toArray()
+            db.notes.toArray(),
+            db.folders.toArray(),
+            db.settings.toArray(),
         ]);
 
         const duration = Math.round(performance.now() - start);
@@ -48,11 +53,16 @@ async function _loadBootData(): Promise<BootData> {
             entities,
             edges,
             notes,
+            folders,
+            settings,
             loadedAt: Date.now(),
             duration
         };
 
-        console.log(`[BootCache] ✓ Loaded ${entities.length} entities, ${edges.length} edges, ${notes.length} notes in ${duration}ms`);
+        // Hydrate settings into the in-memory cache immediately
+        hydrateFromBootData(settings);
+
+        console.log(`[BootCache] ✓ Loaded ${entities.length} entities, ${edges.length} edges, ${notes.length} notes, ${folders.length} folders, ${settings.length} settings in ${duration}ms`);
         return _bootData;
 
     } catch (err) {
@@ -62,6 +72,8 @@ async function _loadBootData(): Promise<BootData> {
             entities: [],
             edges: [],
             notes: [],
+            folders: [],
+            settings: [],
             loadedAt: Date.now(),
             duration: 0
         };

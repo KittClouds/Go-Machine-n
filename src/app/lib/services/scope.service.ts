@@ -5,6 +5,7 @@
 import { Injectable, signal, computed } from '@angular/core';
 import type { Note, Entity, Folder } from '../dexie/db';
 import type { TreeNode } from '../arborist/types';
+import { getSetting, setSetting } from '../dexie/settings.service';
 import * as ops from '../operations';
 
 // =============================================================================
@@ -60,7 +61,7 @@ const SCOPE_STORAGE_KEY = 'kittclouds_active_scope';
     providedIn: 'root'
 })
 export class ScopeService {
-    // Active scope state - initialized from localStorage
+    // Active scope state - initialized from Dexie settings
     private _activeScope = signal<ActiveScope>(this.loadPersistedScope());
 
     // Getters
@@ -69,18 +70,13 @@ export class ScopeService {
     }
 
     /**
-     * Load persisted scope from localStorage
+     * Load persisted scope from Dexie settings
      */
     private loadPersistedScope(): ActiveScope {
-        if (typeof localStorage === 'undefined') return GLOBAL_SCOPE;
         try {
-            const stored = localStorage.getItem(SCOPE_STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                // Validate structure
-                if (parsed && parsed.type && parsed.id) {
-                    return parsed as ActiveScope;
-                }
+            const stored = getSetting<ActiveScope | null>(SCOPE_STORAGE_KEY, null);
+            if (stored && stored.type && stored.id) {
+                return stored;
             }
         } catch (e) {
             console.warn('[ScopeService] Failed to load persisted scope:', e);
@@ -89,15 +85,10 @@ export class ScopeService {
     }
 
     /**
-     * Persist scope to localStorage
+     * Persist scope to Dexie settings
      */
     private persistScope(scope: ActiveScope): void {
-        if (typeof localStorage === 'undefined') return;
-        try {
-            localStorage.setItem(SCOPE_STORAGE_KEY, JSON.stringify(scope));
-        } catch (e) {
-            console.warn('[ScopeService] Failed to persist scope:', e);
-        }
+        setSetting(SCOPE_STORAGE_KEY, scope);
     }
 
     // Computed: Active narrative ID (convenience for Codex queries)

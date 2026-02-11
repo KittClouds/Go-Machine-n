@@ -3,6 +3,7 @@ import { GoKittService } from './gokitt.service';
 import { NoteEditorStore } from '../lib/store/note-editor.store';
 import { smartGraphRegistry } from '../lib/registry';
 import { OpenRouterService } from '../lib/services/openrouter.service';
+import { getSetting, setSetting } from '../lib/dexie/settings.service';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface NerSuggestion {
@@ -32,18 +33,16 @@ export class NerService {
     private openRouter = inject(OpenRouterService);
 
     constructor() {
-        // Init from localStorage
-        if (typeof localStorage !== 'undefined') {
-            const stored = localStorage.getItem('ner_fst_enabled');
-            if (stored !== null) {
-                const enabled = stored === 'true';
-                this.fstEnabled.set(enabled);
-                _globalFstEnabled = enabled;
-            }
-            const llmStored = localStorage.getItem('ner_llm_enabled');
-            if (llmStored !== null) {
-                this.llmEnabled.set(llmStored === 'true');
-            }
+        // Init from Dexie settings
+        const stored = getSetting<string | null>('ner_fst_enabled', null);
+        if (stored !== null) {
+            const enabled = stored === 'true';
+            this.fstEnabled.set(enabled);
+            _globalFstEnabled = enabled;
+        }
+        const llmStored = getSetting<string | null>('ner_llm_enabled', null);
+        if (llmStored !== null) {
+            this.llmEnabled.set(llmStored === 'true');
         }
     }
 
@@ -268,9 +267,7 @@ Evaluate each candidate. Return JSON with your analysis.`;
 
     toggleFst(enabled: boolean) {
         this.fstEnabled.set(enabled);
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('ner_fst_enabled', String(enabled));
-        }
+        setSetting('ner_fst_enabled', String(enabled));
         if (!enabled) {
             this.suggestions.set([]);
         }
@@ -280,16 +277,14 @@ Evaluate each candidate. Return JSON with your analysis.`;
 
     toggleLlm(enabled: boolean) {
         this.llmEnabled.set(enabled);
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('ner_llm_enabled', String(enabled));
-        }
+        setSetting('ner_llm_enabled', String(enabled));
     }
 }
 
 // Global accessor for non-Angular code
 let _globalFstEnabled = true;
-if (typeof localStorage !== 'undefined') {
-    const stored = localStorage.getItem('ner_fst_enabled');
+{
+    const stored = getSetting<string | null>('ner_fst_enabled', null);
     if (stored !== null) {
         _globalFstEnabled = stored === 'true';
     }

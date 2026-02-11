@@ -1,4 +1,5 @@
 import { Injectable, computed, signal, effect, inject } from '@angular/core';
+import { getSetting, setSetting } from '../lib/dexie/settings.service';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
 import { combineLatest } from 'rxjs';
@@ -166,26 +167,22 @@ export class CalendarService {
     });
 
     constructor() {
-        // Load from localStorage if available (simple persistence for now)
-        const savedCal = localStorage.getItem('fantasy_calendar_def');
+        // Load from Dexie settings if available
+        const savedCal = getSetting<CalendarDefinition | null>('fantasy_calendar_def', null);
         if (savedCal) {
-            try {
-                this.calendar.set(JSON.parse(savedCal));
-            } catch (e) { console.error('Failed to load calendar', e); }
+            this.calendar.set(savedCal);
         }
 
-        const savedPeriods = localStorage.getItem('fantasy_calendar_periods');
+        const savedPeriods = getSetting<Period[] | null>('fantasy_calendar_periods', null);
         if (savedPeriods) {
-            try {
-                this.periods.set(JSON.parse(savedPeriods));
-            } catch (e) { console.error('Failed to load periods', e); }
+            this.periods.set(savedPeriods);
         }
 
         // Auto-save effect
         effect(() => {
-            localStorage.setItem('fantasy_calendar_def', JSON.stringify(this.calendar()));
-            // Events are now handled by Dexie/NotesService, no need to save to localStorage
-            localStorage.setItem('fantasy_calendar_periods', JSON.stringify(this.periods()));
+            setSetting('fantasy_calendar_def', this.calendar());
+            // Events are now handled by Dexie/NotesService, no need to save separately
+            setSetting('fantasy_calendar_periods', this.periods());
         });
     }
 

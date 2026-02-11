@@ -9,6 +9,7 @@
 
 import { Injectable, signal } from '@angular/core';
 import { GoogleGenAI } from '@google/genai';
+import { getSetting, setSetting, removeSetting } from '../dexie/settings.service';
 
 export interface GoogleGenAIMessage {
     role: 'user' | 'model';
@@ -51,15 +52,7 @@ export class GoogleGenAIService {
     // -------------------------------------------------------------------------
 
     private loadConfig(): GoogleGenAIConfig | null {
-        try {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                return JSON.parse(saved);
-            }
-        } catch (e) {
-            console.warn('[GoogleGenAI] Failed to load config:', e);
-        }
-        return null;
+        return getSetting<GoogleGenAIConfig | null>(STORAGE_KEY, null);
     }
 
     private initClient(): void {
@@ -73,7 +66,7 @@ export class GoogleGenAIService {
     saveConfig(config: GoogleGenAIConfig): void {
         this._config.set(config);
         this._isConfigured.set(!!config.apiKey);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+        setSetting(STORAGE_KEY, config);
         this.initClient();
         console.log('[GoogleGenAI] Config saved');
     }
@@ -82,7 +75,7 @@ export class GoogleGenAIService {
         this._config.set(null);
         this._isConfigured.set(false);
         this._client = null;
-        localStorage.removeItem(STORAGE_KEY);
+        removeSetting(STORAGE_KEY);
     }
 
     getApiKey(): string | null {

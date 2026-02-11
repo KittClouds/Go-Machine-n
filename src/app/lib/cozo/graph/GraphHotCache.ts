@@ -2,7 +2,7 @@
  * GraphHotCache - O(1) in-memory entity/relationship lookup
  * 
  * Dual-index cache with normalized label + alias lookups.
- * Syncs to localStorage boot cache for instant startup.
+ * Syncs to Dexie settings boot cache for instant startup.
  * 
  * Hot = actively queried, Warm = preloaded from boot cache, Cold = DB-only
  */
@@ -18,7 +18,7 @@ import type { QueryClient } from '@tanstack/react-query';
 export interface GraphHotCacheConfig {
     maxEntities?: number;       // LRU eviction threshold (default 1000)
     maxRelationships?: number;  // (default 2000)
-    bootCacheEnabled?: boolean; // localStorage sync (default true)
+    bootCacheEnabled?: boolean; // Dexie settings sync (default true)
     queryClient?: QueryClient;  // TanStack invalidation (optional)
 }
 
@@ -221,7 +221,7 @@ export class GraphHotCache {
     // =========================================================================
 
     /**
-     * Warm the cache from boot cache (localStorage)
+     * Warm the cache from boot cache (Dexie settings)
      * Returns entities loaded (0 if no boot cache)
      */
     warmFromBootCache(): number {
@@ -267,7 +267,7 @@ export class GraphHotCache {
     }
 
     /**
-     * Sync current state to boot cache (localStorage)
+     * Sync current state to boot cache (Dexie settings)
      */
     syncToBootCache(): void {
         if (!this.bootCacheEnabled || !this.dirty) return;
